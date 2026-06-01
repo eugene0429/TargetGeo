@@ -23,3 +23,10 @@ models/*.pth
 *.mp4
 *.avi
 recordings/
+
+# Local test media / sample frames (per-deployment, not part of the repo)
+data/
+*.png
+*.jpg
+*.jpeg
+!docs/**/*.png
