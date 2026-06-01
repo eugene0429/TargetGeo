@@ -158,3 +158,24 @@ All non-slow tests should pass standalone.
 - Covariance is computed using the UE-convention numerical Jacobian; for GPS path the magnitudes are valid but the axes are interpreted as ENU (translation doesn't affect covariance).
 - Gimbal Euler convention differs between UE and real-flight telemetry — caller adapts in the input dataclass.
 - SAM 3.0 fallback not implemented — explicit checkpoint required.
+
+## Interactive viewer
+
+Visualize the pipeline on a video file or RTSP stream:
+
+```bash
+./run_viewer.sh <video.mp4 | rtsp://host/stream> \
+  [--hfov-deg 60 | --fx FX --fy FY --cx CX --cy CY] \
+  [--radius 2.5] [--prompts N] [--telemetry tele.csv] [--conf 0.25]
+```
+
+Overlays: detection bbox, fitted ellipse, SAM mask, camera-frame normal
+(chosen solid, rejected candidate faint), and a HUD with range and the
+uncertainty cone. Without telemetry the geodetic fields show "N/A"; supply a
+`--telemetry` CSV (`frame,lat,lon,alt_m,pitch,yaw,roll`) to fill lat/lon/alt and
+the world-frame normal.
+
+Controls: `space` play/pause, `←/→` step, `b/e/m/n/h` toggle layers, `q` quit.
+File mode runs lazily and caches per frame; stream mode shows the most recently
+analyzed frame (SAM cannot keep up with full stream rate). Requires
+`./setup_env.sh` to have been run.
