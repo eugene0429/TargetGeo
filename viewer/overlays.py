@@ -52,3 +52,31 @@ def project_normal_arrow(
         s = px_cap / L
         b = (a[0] + du * s, a[1] + dv * s)
     return (int(round(a[0])), int(round(a[1]))), (int(round(b[0])), int(round(b[1])))
+
+
+def draw_bbox(img, bbox, color=BBOX_COLOR, thickness=2) -> None:
+    """Draw an (x1, y1, x2, y2) rectangle. No-op if bbox is None."""
+    if bbox is None:
+        return
+    x1, y1, x2, y2 = (int(round(v)) for v in bbox)
+    cv2.rectangle(img, (x1, y1), (x2, y2), color, thickness, cv2.LINE_AA)
+
+
+def draw_ellipse(img, ellipse, color=ELLIPSE_COLOR, thickness=2) -> None:
+    """Draw the fitted ellipse outline + center dot. ellipse: dict cx,cy,major,minor,theta."""
+    if ellipse is None:
+        return
+    center = (int(round(ellipse["cx"])), int(round(ellipse["cy"])))
+    axes = (int(round(ellipse["major"] / 2.0)), int(round(ellipse["minor"] / 2.0)))
+    cv2.ellipse(img, center, axes, float(ellipse["theta"]), 0.0, 360.0,
+                color, thickness, cv2.LINE_AA)
+    cv2.circle(img, center, 3, color, -1, cv2.LINE_AA)
+
+
+def draw_mask(img, contour, color=MASK_COLOR, alpha=0.35) -> None:
+    """Translucent fill of the mask contour. No-op if contour is None."""
+    if contour is None:
+        return
+    overlay = img.copy()
+    cv2.fillPoly(overlay, [np.asarray(contour, dtype=np.int32).reshape(-1, 2)], color)
+    cv2.addWeighted(overlay, alpha, img, 1.0 - alpha, 0.0, dst=img)
