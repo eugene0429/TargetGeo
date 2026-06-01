@@ -156,3 +156,51 @@ class MobileSamAdapter(BoxSegmenter):
         if not res:
             return None
         return _ultra_mask_to_full(res[0], h, w)
+
+
+import os
+
+
+class EdgeSamAdapter(BoxSegmenter):
+    """EdgeSAM via the chongzhou96/EdgeSAM `edge_sam` package + SamPredictor API.
+
+    Set EDGE_SAM_CHECKPOINT to the weight path (default ./weights/edge_sam_3x.pth).
+    """
+
+    name = "edgesam"
+
+    def __init__(self, device: str = "cuda",
+                 checkpoint: Optional[str] = None,
+                 model_type: str = "edge_sam") -> None:
+        super().__init__()
+        self.device = device
+        ckpt = checkpoint or os.environ.get(
+            "EDGE_SAM_CHECKPOINT", "weights/edge_sam_3x.pth")
+        try:
+            from edge_sam import sam_model_registry, SamPredictor
+            if not os.path.exists(ckpt):
+                raise FileNotFoundError(f"EdgeSAM checkpoint not found: {ckpt}")
+            sam = sam_model_registry[model_type](checkpoint=ckpt)
+            sam.to(device=device)
+            self._predictor = SamPredictor(sam)
+            self.available = True
+        except Exception as e:  # noqa: BLE001
+            print(f"[edgesam] unavailable (skipping): {e}")
+            self.available = False
+
+    def segment(self, rgb_bgr: np.ndarray, bbox: BBox) -> Optional[np.ndarray]:
+        if not self.available:
+            return None
+        rgb = cv2.cvtColor(rgb_bgr, cv2.COLOR_BGR2RGB)
+        x1, y1, x2, y2 = (int(v) for v in bbox)
+        self._predictor.set_image(rgb)
+        masks, scores, _ = self._predictor.predict(
+            box=np.array([x1, y1, x2, y2]), multimask_output=False,
+        )
+        if masks is None or len(masks) == 0:
+            return None
+        i = int(np.argmax(scores))
+        m = masks[i]
+        if m.ndim == 3:
+            m = m[0]
+        return m.astype(bool)
