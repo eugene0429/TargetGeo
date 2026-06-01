@@ -102,3 +102,57 @@ class Sam31Adapter(BoxSegmenter):
         except ImportError:
             pass
         return np.asarray(x)
+
+
+class FastSamAdapter(BoxSegmenter):
+    name = "fastsam"
+
+    def __init__(self, device: str = "cuda", weights: str = "FastSAM-s.pt") -> None:
+        super().__init__()
+        self.device = device
+        try:
+            from ultralytics import FastSAM
+            self._model = FastSAM(weights)
+            self.available = True
+        except Exception as e:  # noqa: BLE001
+            print(f"[fastsam] unavailable: {e}")
+            self.available = False
+
+    def segment(self, rgb_bgr: np.ndarray, bbox: BBox) -> Optional[np.ndarray]:
+        if not self.available:
+            return None
+        h, w = rgb_bgr.shape[:2]
+        x1, y1, x2, y2 = (int(v) for v in bbox)
+        res = self._model(
+            rgb_bgr, bboxes=[[x1, y1, x2, y2]], device=self.device, verbose=False,
+        )
+        if not res:
+            return None
+        return _ultra_mask_to_full(res[0], h, w)
+
+
+class MobileSamAdapter(BoxSegmenter):
+    name = "mobilesam"
+
+    def __init__(self, device: str = "cuda", weights: str = "mobile_sam.pt") -> None:
+        super().__init__()
+        self.device = device
+        try:
+            from ultralytics import SAM
+            self._model = SAM(weights)
+            self.available = True
+        except Exception as e:  # noqa: BLE001
+            print(f"[mobilesam] unavailable: {e}")
+            self.available = False
+
+    def segment(self, rgb_bgr: np.ndarray, bbox: BBox) -> Optional[np.ndarray]:
+        if not self.available:
+            return None
+        h, w = rgb_bgr.shape[:2]
+        x1, y1, x2, y2 = (int(v) for v in bbox)
+        res = self._model(
+            rgb_bgr, bboxes=[[x1, y1, x2, y2]], device=self.device, verbose=False,
+        )
+        if not res:
+            return None
+        return _ultra_mask_to_full(res[0], h, w)
