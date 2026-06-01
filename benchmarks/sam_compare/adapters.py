@@ -8,8 +8,12 @@ Every adapter exposes:
     available: bool
     segment(crop_bgr, box_in_crop) -> Optional[np.ndarray]   # bool mask, crop HxW
 
-- SAM3.1 and FastSAM use TEXT prompts (ignore box_in_crop).
-- MobileSAM / EdgeSAM use box_in_crop as a box prompt (no text encoder).
+Prompting (the YOLO box covers the WHOLE target, so a box prompt tends to grab
+the whole target rather than the disk; a center POINT lands on the disk):
+- sam3.1        : production TEXT prompts (ignores box).
+- fastsam-text  : same TEXT prompts via CLIP (ignores box).
+- fastsam-point : POINT prompt at the box center.
+- mobilesam-point / edgesam-point : POINT prompt at the box center (no text encoder).
 
 Construction performs the (heavy) model load. If deps/weights are missing the
 adapter sets available=False and segment() returns None; the runner skips it.
@@ -27,6 +31,11 @@ import numpy as np
 BBox = Tuple[int, int, int, int]
 
 
+def _box_center(box: BBox) -> Tuple[int, int]:
+    x1, y1, x2, y2 = (int(v) for v in box)
+    return (x1 + x2) // 2, (y1 + y2) // 2
+
+
 class BoxSegmenter:
     name: str = "base"
 
@@ -37,20 +46,27 @@ class BoxSegmenter:
         raise NotImplementedError
 
 
-def _ultra_mask_to_full(result, h: int, w: int) -> Optional[np.ndarray]:
-    """Build a crop-sized bool mask from an ultralytics Results object via polygons.
+def _ultra_best_mask(result, h: int, w: int) -> Optional[np.ndarray]:
+    """Single highest-confidence mask from an ultralytics Results object.
 
-    Polygons (`masks.xy`) are already in input-image (crop) pixel coords, which
-    avoids letterbox-resolution mismatches in `masks.data`.
+    Picks ONE object (top conf) rather than unioning all polygons — for point/box
+    prompts that avoids merging the disk with the surrounding target. Polygons
+    (`masks.xy`) are already in input-image (crop) pixel coords.
     """
     masks = getattr(result, "masks", None)
     if masks is None or masks.xy is None or len(masks.xy) == 0:
         return None
+    boxes = getattr(result, "boxes", None)
+    if (boxes is not None and boxes.conf is not None
+            and len(boxes.conf) == len(masks.xy)):
+        i = int(boxes.conf.argmax())
+    else:
+        i = 0
+    poly = masks.xy[i]
+    if poly is None or len(poly) < 3:
+        return None
     full = np.zeros((h, w), dtype=np.uint8)
-    for poly in masks.xy:
-        if poly is None or len(poly) < 3:
-            continue
-        cv2.fillPoly(full, [poly.astype(np.int32)], 1)
+    cv2.fillPoly(full, [poly.astype(np.int32)], 1)
     if full.sum() == 0:
         return None
     return full.astype(bool)
@@ -87,30 +103,40 @@ class Sam31Adapter(BoxSegmenter):
 
 
 class FastSamAdapter(BoxSegmenter):
-    """FastSAM text path (CLIP): segments everything in the crop, then CLIP picks
-    the mask matching each text prompt. Uses the same production prompts as SAM3.1
-    and keeps the highest-similarity mask. Ignores box.
+    """FastSAM with either TEXT (CLIP, same production prompts) or POINT (box center).
+
+    prompt_mode: "text" -> name "fastsam-text"; "point" -> name "fastsam-point".
     """
 
-    name = "fastsam"
-
-    def __init__(self, device: str = "cuda", weights: str = "FastSAM-s.pt") -> None:
+    def __init__(self, device: str = "cuda", weights: str = "FastSAM-s.pt",
+                 prompt_mode: str = "text") -> None:
         super().__init__()
         self.device = device
+        self.prompt_mode = prompt_mode
+        self.name = f"fastsam-{prompt_mode}"
         try:
             from ultralytics import FastSAM
-            from seg_pose.estimator import DEFAULT_TEXT_PROMPTS
             self._model = FastSAM(weights)
-            self._prompts = tuple(DEFAULT_TEXT_PROMPTS)
+            if prompt_mode == "text":
+                from seg_pose.estimator import DEFAULT_TEXT_PROMPTS
+                self._prompts = tuple(DEFAULT_TEXT_PROMPTS)
             self.available = True
         except Exception as e:  # noqa: BLE001
-            print(f"[fastsam] unavailable: {e}")
+            print(f"[{self.name}] unavailable: {e}")
             self.available = False
 
     def segment(self, crop_bgr: np.ndarray, box: BBox) -> Optional[np.ndarray]:
         if not self.available:
             return None
         h, w = crop_bgr.shape[:2]
+        if self.prompt_mode == "point":
+            px, py = _box_center(box)
+            res = self._model(
+                crop_bgr, points=[[px, py]], labels=[1],
+                device=self.device, verbose=False,
+            )
+            return _ultra_best_mask(res[0], h, w) if res else None
+        # text: try each production prompt, keep the highest-CLIP-conf mask.
         best_mask, best_conf = None, -1.0
         for text in self._prompts:
             res = self._model(
@@ -123,14 +149,16 @@ class FastSamAdapter(BoxSegmenter):
                 continue
             conf = float(r.boxes.conf.max().item())
             if conf > best_conf:
-                m = _ultra_mask_to_full(r, h, w)
+                m = _ultra_best_mask(r, h, w)
                 if m is not None:
                     best_mask, best_conf = m, conf
         return best_mask
 
 
 class MobileSamAdapter(BoxSegmenter):
-    name = "mobilesam"
+    """MobileSAM with a POINT prompt at the box center (no text encoder)."""
+
+    name = "mobilesam-point"
 
     def __init__(self, device: str = "cuda", weights: str = "mobile_sam.pt") -> None:
         super().__init__()
@@ -140,29 +168,28 @@ class MobileSamAdapter(BoxSegmenter):
             self._model = SAM(weights)
             self.available = True
         except Exception as e:  # noqa: BLE001
-            print(f"[mobilesam] unavailable: {e}")
+            print(f"[mobilesam-point] unavailable: {e}")
             self.available = False
 
     def segment(self, crop_bgr: np.ndarray, box: BBox) -> Optional[np.ndarray]:
         if not self.available:
             return None
         h, w = crop_bgr.shape[:2]
-        x1, y1, x2, y2 = (int(v) for v in box)
+        px, py = _box_center(box)
         res = self._model(
-            crop_bgr, bboxes=[[x1, y1, x2, y2]], device=self.device, verbose=False,
+            crop_bgr, points=[[px, py]], labels=[1],
+            device=self.device, verbose=False,
         )
-        if not res:
-            return None
-        return _ultra_mask_to_full(res[0], h, w)
+        return _ultra_best_mask(res[0], h, w) if res else None
 
 
 class EdgeSamAdapter(BoxSegmenter):
-    """EdgeSAM via the chongzhou96/EdgeSAM `edge_sam` package + SamPredictor API.
+    """EdgeSAM (chongzhou96/EdgeSAM `edge_sam` package) with a POINT prompt.
 
     Set EDGE_SAM_CHECKPOINT to the weight path (default ./weights/edge_sam_3x.pth).
     """
 
-    name = "edgesam"
+    name = "edgesam-point"
 
     def __init__(self, device: str = "cuda",
                  checkpoint: Optional[str] = None,
@@ -180,17 +207,19 @@ class EdgeSamAdapter(BoxSegmenter):
             self._predictor = SamPredictor(sam)
             self.available = True
         except Exception as e:  # noqa: BLE001
-            print(f"[edgesam] unavailable (skipping): {e}")
+            print(f"[edgesam-point] unavailable (skipping): {e}")
             self.available = False
 
     def segment(self, crop_bgr: np.ndarray, box: BBox) -> Optional[np.ndarray]:
         if not self.available:
             return None
         rgb = cv2.cvtColor(crop_bgr, cv2.COLOR_BGR2RGB)
-        x1, y1, x2, y2 = (int(v) for v in box)
+        px, py = _box_center(box)
         self._predictor.set_image(rgb)
         masks, scores, _ = self._predictor.predict(
-            box=np.array([x1, y1, x2, y2]), multimask_output=False,
+            point_coords=np.array([[px, py]]),
+            point_labels=np.array([1]),
+            multimask_output=False,
         )
         if masks is None or len(masks) == 0:
             return None

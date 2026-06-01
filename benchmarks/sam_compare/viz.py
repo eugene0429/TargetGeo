@@ -96,7 +96,9 @@ def make_panel(crop_bgr: np.ndarray,
     raw = crop_bgr.copy()
     x1, y1, x2, y2 = (int(v) for v in box_in_crop)
     cv2.rectangle(raw, (x1, y1), (x2, y2), (0, 165, 255), 2)  # orange detector box
-    cells.append(_label(raw, ["crop + det box"]))
+    pcx, pcy = (x1 + x2) // 2, (y1 + y2) // 2                 # point-prompt location
+    cv2.drawMarker(raw, (pcx, pcy), (0, 255, 255), cv2.MARKER_STAR, 16, 2)
+    cells.append(_label(raw, ["crop: box + point"]))
 
     for i, (name, mask, iou_val) in enumerate(zip(names, masks_in, ious)):
         color = _COLORS[i % len(_COLORS)]

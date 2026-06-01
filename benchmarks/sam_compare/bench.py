@@ -88,7 +88,8 @@ def run(root: Path, limit: Optional[int], warmup: int, device: str,
 
     adapters = [
         Sam31Adapter(device=device),
-        FastSamAdapter(device=device),
+        FastSamAdapter(device=device, prompt_mode="text"),
+        FastSamAdapter(device=device, prompt_mode="point"),
         MobileSamAdapter(device=device),
         EdgeSamAdapter(device=device),
     ]
@@ -166,7 +167,7 @@ def _build_summary(rows: List[Dict], lat: Dict[str, List[float]],
         f"# SAM variant comparison ({len(used)} frames, IoU reference = sam3.1)",
         "",
         "Pipeline-faithful: YOLO bbox -> crop (15% pad) -> segment disk in crop.",
-        "Prompts: sam3.1 & fastsam = text; mobilesam & edgesam = box (detector bbox in crop).",
+        "Prompts: sam3.1 & fastsam-text = text; fastsam-point/mobilesam/edgesam = point at box center.",
         "",
         "| model | mean ms | median ms | p90 ms | mean IoU vs sam3.1 | ellipse ok % |",
         "|---|---|---|---|---|---|",
