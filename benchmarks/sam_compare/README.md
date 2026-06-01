@@ -1,9 +1,22 @@
 # SAM variant comparison
 
 Benchmarks SAM3.1, FastSAM, MobileSAM, and (optionally) EdgeSAM on the TargetGeo
-disk-segmentation task. Every model is box-prompted with the same YOLO detector
-bbox on the full frame; latency and mask quality (IoU vs SAM3.1 + ellipse fit)
-are reported.
+disk-segmentation task.
+
+**Pipeline-faithful:** mirrors production — the YOLO detector bbox is cropped
+(15% padding via `crop_to_bbox`) and each model segments the disk *inside that
+crop*. Prompting follows each model's capability:
+
+| model | prompt |
+|---|---|
+| sam3.1 (reference) | text — the production `DEFAULT_TEXT_PROMPTS` |
+| fastsam | text — same prompts, CLIP-matched (FastSAM has a text encoder) |
+| mobilesam | box — the detector bbox in crop-local coords (no text encoder) |
+| edgesam | box — same as mobilesam (no text encoder) |
+
+Reported per model: latency (mean/median/p90, warmup-excluded), mean IoU vs the
+SAM3.1 reference mask, and ellipse-fit success rate. Per-frame side-by-side
+visualization panels are saved so segmentation quality can be checked by eye.
 
 ## Run
 
@@ -20,13 +33,17 @@ cd /tmp
 ```
 
 Options: `--limit N` (first N frames), `--warmup K` (timing-excluded frames,
-default 3), `--device cuda|cpu`.
+default 3), `--device cuda|cpu`, `--viz-limit N` (max panels to save; `0`
+disables, default = all frames).
 
 Outputs land in `benchmarks/sam_compare/results/` (gitignored):
-`results.csv` (per model+frame) and `summary.md` (per-model table, also printed).
+- `results.csv` — one row per (model, frame)
+- `summary.md` — per-model table (also printed to console)
+- `viz/<frame>.png` — side-by-side panel: crop+detector-box, then each model's
+  mask overlaid on the crop, labelled with IoU vs SAM3.1 and mask area
 
-FastSAM (`FastSAM-s.pt`) and MobileSAM (`mobile_sam.pt`) weights auto-download
-from the ultralytics cache on first run.
+FastSAM (`FastSAM-s.pt` + CLIP weights for text) and MobileSAM (`mobile_sam.pt`)
+weights auto-download on first run.
 
 ## EdgeSAM (optional)
 
@@ -44,5 +61,6 @@ export EDGE_SAM_CHECKPOINT=/home/sim2real/TargetGeo/weights/edge_sam_3x.pth
 
 Subclass `BoxSegmenter` in `adapters.py`: set `name`, do the lazy load in
 `__init__` (set `available=False` on failure), and implement
-`segment(rgb_bgr, bbox) -> Optional[bool mask HxW]`. Add it to the `adapters`
-list in `bench.py`.
+`segment(crop_bgr, box_in_crop) -> Optional[bool mask (crop HxW)]` — use the box
+or run your own text prompt as appropriate. Add it to the `adapters` list in
+`bench.py`.

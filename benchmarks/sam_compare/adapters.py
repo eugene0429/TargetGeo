@@ -1,9 +1,15 @@
-"""Uniform box-prompted segmenters for the SAM variant benchmark.
+"""Crop-based disk segmenters for the SAM variant benchmark.
+
+Mirrors the production pipeline: the YOLO detector bbox is cropped (with padding)
+and each model segments the disk *inside that crop*.
 
 Every adapter exposes:
     name: str
     available: bool
-    segment(rgb_bgr, bbox_xyxy) -> Optional[np.ndarray]   # full-image bool mask HxW
+    segment(crop_bgr, box_in_crop) -> Optional[np.ndarray]   # bool mask, crop HxW
+
+- SAM3.1 and FastSAM use TEXT prompts (ignore box_in_crop).
+- MobileSAM / EdgeSAM use box_in_crop as a box prompt (no text encoder).
 
 Construction performs the (heavy) model load. If deps/weights are missing the
 adapter sets available=False and segment() returns None; the runner skips it.
@@ -11,7 +17,8 @@ adapter sets available=False and segment() returns None; the runner skips it.
 
 from __future__ import annotations
 
-from typing import List, Optional, Tuple
+import os
+from typing import Optional, Tuple
 
 import cv2
 import numpy as np
@@ -26,15 +33,15 @@ class BoxSegmenter:
     def __init__(self) -> None:
         self.available: bool = False
 
-    def segment(self, rgb_bgr: np.ndarray, bbox: BBox) -> Optional[np.ndarray]:
+    def segment(self, crop_bgr: np.ndarray, box: BBox) -> Optional[np.ndarray]:
         raise NotImplementedError
 
 
 def _ultra_mask_to_full(result, h: int, w: int) -> Optional[np.ndarray]:
-    """Build a full-image bool mask from an ultralytics Results object via polygons.
+    """Build a crop-sized bool mask from an ultralytics Results object via polygons.
 
-    Polygons (`masks.xy`) are already in original-image pixel coords, which avoids
-    letterbox-resolution mismatches in `masks.data`.
+    Polygons (`masks.xy`) are already in input-image (crop) pixel coords, which
+    avoids letterbox-resolution mismatches in `masks.data`.
     """
     masks = getattr(result, "masks", None)
     if masks is None or masks.xy is None or len(masks.xy) == 0:
@@ -50,61 +57,41 @@ def _ultra_mask_to_full(result, h: int, w: int) -> Optional[np.ndarray]:
 
 
 class Sam31Adapter(BoxSegmenter):
+    """Production SAM3.1 path: text prompts on the crop. Box is ignored.
+
+    Wraps seg_pose.sam3.Sam3DiskSegmenter for exact production parity.
+    """
+
     name = "sam3.1"
 
     def __init__(self, device: str = "cuda") -> None:
         super().__init__()
         self.device = device
         try:
-            from sam3.model_builder import build_sam3_image_model
-            from sam3.model.sam3_image_processor import Sam3Processor
-            model = build_sam3_image_model(device=device)
-            self._processor = Sam3Processor(model, device=device)
-            import torch
-            self._torch = torch
+            from seg_pose.sam3 import Sam3DiskSegmenter
+            from seg_pose.estimator import DEFAULT_TEXT_PROMPTS
+            self._seg = Sam3DiskSegmenter(device=device)
+            self._prompts = tuple(DEFAULT_TEXT_PROMPTS)
             self.available = True
         except Exception as e:  # noqa: BLE001
             print(f"[sam3.1] unavailable: {e}")
             self.available = False
 
-    def segment(self, rgb_bgr: np.ndarray, bbox: BBox) -> Optional[np.ndarray]:
+    def segment(self, crop_bgr: np.ndarray, box: BBox) -> Optional[np.ndarray]:
         if not self.available:
             return None
-        from PIL import Image
-        pil = Image.fromarray(cv2.cvtColor(rgb_bgr, cv2.COLOR_BGR2RGB))
-        x1, y1, x2, y2 = (int(v) for v in bbox)
-        torch = self._torch
-        with torch.autocast(self.device if self.device == "cuda" else "cpu",
-                            dtype=torch.bfloat16):
-            state = self._processor.set_image(pil)
-            out = self._processor.add_geometric_prompt(
-                box=[x1, y1, x2, y2], label=True, state=state,
-            )
-            masks = out.get("masks")
-            scores = out.get("scores")
-            self._processor.reset_all_prompts(state)
-        if masks is None or len(masks) == 0:
+        mask, _score, _winner = self._seg.segment(crop_bgr, self._prompts)
+        if mask is None:
             return None
-        s_arr = self._to_numpy(scores)
-        m_arr = self._to_numpy(masks)
-        i = int(np.argmax(s_arr))
-        m = m_arr[i]
-        if m.ndim == 3:
-            m = m[0]
-        return m.astype(bool)
-
-    @staticmethod
-    def _to_numpy(x) -> np.ndarray:
-        try:
-            import torch
-            if isinstance(x, torch.Tensor):
-                return x.detach().cpu().float().numpy()
-        except ImportError:
-            pass
-        return np.asarray(x)
+        return mask.astype(bool)
 
 
 class FastSamAdapter(BoxSegmenter):
+    """FastSAM text path (CLIP): segments everything in the crop, then CLIP picks
+    the mask matching each text prompt. Uses the same production prompts as SAM3.1
+    and keeps the highest-similarity mask. Ignores box.
+    """
+
     name = "fastsam"
 
     def __init__(self, device: str = "cuda", weights: str = "FastSAM-s.pt") -> None:
@@ -112,23 +99,34 @@ class FastSamAdapter(BoxSegmenter):
         self.device = device
         try:
             from ultralytics import FastSAM
+            from seg_pose.estimator import DEFAULT_TEXT_PROMPTS
             self._model = FastSAM(weights)
+            self._prompts = tuple(DEFAULT_TEXT_PROMPTS)
             self.available = True
         except Exception as e:  # noqa: BLE001
             print(f"[fastsam] unavailable: {e}")
             self.available = False
 
-    def segment(self, rgb_bgr: np.ndarray, bbox: BBox) -> Optional[np.ndarray]:
+    def segment(self, crop_bgr: np.ndarray, box: BBox) -> Optional[np.ndarray]:
         if not self.available:
             return None
-        h, w = rgb_bgr.shape[:2]
-        x1, y1, x2, y2 = (int(v) for v in bbox)
-        res = self._model(
-            rgb_bgr, bboxes=[[x1, y1, x2, y2]], device=self.device, verbose=False,
-        )
-        if not res:
-            return None
-        return _ultra_mask_to_full(res[0], h, w)
+        h, w = crop_bgr.shape[:2]
+        best_mask, best_conf = None, -1.0
+        for text in self._prompts:
+            res = self._model(
+                crop_bgr, texts=text, device=self.device, verbose=False,
+            )
+            if not res:
+                continue
+            r = res[0]
+            if r.masks is None or r.boxes is None or len(r.boxes) == 0:
+                continue
+            conf = float(r.boxes.conf.max().item())
+            if conf > best_conf:
+                m = _ultra_mask_to_full(r, h, w)
+                if m is not None:
+                    best_mask, best_conf = m, conf
+        return best_mask
 
 
 class MobileSamAdapter(BoxSegmenter):
@@ -145,20 +143,17 @@ class MobileSamAdapter(BoxSegmenter):
             print(f"[mobilesam] unavailable: {e}")
             self.available = False
 
-    def segment(self, rgb_bgr: np.ndarray, bbox: BBox) -> Optional[np.ndarray]:
+    def segment(self, crop_bgr: np.ndarray, box: BBox) -> Optional[np.ndarray]:
         if not self.available:
             return None
-        h, w = rgb_bgr.shape[:2]
-        x1, y1, x2, y2 = (int(v) for v in bbox)
+        h, w = crop_bgr.shape[:2]
+        x1, y1, x2, y2 = (int(v) for v in box)
         res = self._model(
-            rgb_bgr, bboxes=[[x1, y1, x2, y2]], device=self.device, verbose=False,
+            crop_bgr, bboxes=[[x1, y1, x2, y2]], device=self.device, verbose=False,
         )
         if not res:
             return None
         return _ultra_mask_to_full(res[0], h, w)
-
-
-import os
 
 
 class EdgeSamAdapter(BoxSegmenter):
@@ -188,11 +183,11 @@ class EdgeSamAdapter(BoxSegmenter):
             print(f"[edgesam] unavailable (skipping): {e}")
             self.available = False
 
-    def segment(self, rgb_bgr: np.ndarray, bbox: BBox) -> Optional[np.ndarray]:
+    def segment(self, crop_bgr: np.ndarray, box: BBox) -> Optional[np.ndarray]:
         if not self.available:
             return None
-        rgb = cv2.cvtColor(rgb_bgr, cv2.COLOR_BGR2RGB)
-        x1, y1, x2, y2 = (int(v) for v in bbox)
+        rgb = cv2.cvtColor(crop_bgr, cv2.COLOR_BGR2RGB)
+        x1, y1, x2, y2 = (int(v) for v in box)
         self._predictor.set_image(rgb)
         masks, scores, _ = self._predictor.predict(
             box=np.array([x1, y1, x2, y2]), multimask_output=False,
