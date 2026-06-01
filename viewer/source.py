@@ -29,13 +29,24 @@ class FileSource(FrameSource):
             raise RuntimeError(f"cannot open video file: {self.path}")
         self.frame_count = int(self._cap.get(cv2.CAP_PROP_FRAME_COUNT))
         self.fps = float(self._cap.get(cv2.CAP_PROP_FPS)) or 30.0
+        self._next_pos = 0  # index the capture will return on the next read()
 
     def get(self, idx: int):
-        """Return frame at index idx (BGR ndarray) or None."""
+        """Return frame at index idx (BGR ndarray) or None.
+
+        Seeking with CAP_PROP_POS_FRAMES forces a decode from the nearest
+        keyframe, which is ~20x slower than a plain sequential read on H.264.
+        So only seek when the request is NOT the next sequential frame.
+        """
         idx = max(0, int(idx))
-        self._cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
+        if idx != self._next_pos:
+            self._cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
+            self._next_pos = idx
         ok, frame = self._cap.read()
-        return frame if ok else None
+        if not ok:
+            return None
+        self._next_pos += 1
+        return frame
 
     def release(self) -> None:
         self._cap.release()
