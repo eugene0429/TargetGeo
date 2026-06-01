@@ -74,12 +74,15 @@ class ViewerApp:
     def run(self):
         self.root = tk.Tk()
         self.speed_var = tk.DoubleVar(value=1.0)
+        # Default to bbox-only so launch stays light (detector only). The
+        # SAM-dependent layers start OFF and load SAM 3.1 (~3GB GPU) lazily when
+        # first enabled.
         self.layer_vars = {
             "bbox": tk.BooleanVar(value=True),
-            "mask": tk.BooleanVar(value=True),
-            "ellipse": tk.BooleanVar(value=True),
-            "normal": tk.BooleanVar(value=True),
-            "hud": tk.BooleanVar(value=True),
+            "mask": tk.BooleanVar(value=False),
+            "ellipse": tk.BooleanVar(value=False),
+            "normal": tk.BooleanVar(value=False),
+            "hud": tk.BooleanVar(value=False),
         }
 
         first = self._grab_initial_frame()

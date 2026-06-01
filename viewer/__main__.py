@@ -13,6 +13,21 @@ _PKG_ROOT = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 sys.path[:] = [p for p in sys.path if os.path.realpath(p or os.curdir) != _PKG_ROOT]
 
 
+class _LazySam3Segmenter:
+    """Defers Sam3DiskSegmenter construction (and its ~3GB GPU load) until the
+    first segment() call, i.e. the first SAM-dependent layer the user views."""
+
+    def __init__(self, build):
+        self._build = build
+        self._seg = None
+
+    def segment(self, crop_bgr, text_prompts):
+        if self._seg is None:
+            print("loading SAM 3.1 (~12s, ~3GB GPU) ...", flush=True)
+            self._seg = self._build()
+        return self._seg.segment(crop_bgr, text_prompts)
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="seg_pose.viewer",
                                  description="Interactive target video viewer")
@@ -73,11 +88,17 @@ def main(argv=None):
         from seg_pose.viewer.telemetry import load_telemetry
         telemetry = load_telemetry(args.telemetry)
 
-    print(f"loading models on {args.device} (SAM ~12s)...", flush=True)
+    print(f"loading detector on {args.device}...", flush=True)
     detector = TargetDetector(checkpoint=DEFAULT_DETECTOR_PATH,
                               conf_threshold=args.conf, device=args.device)
-    segmenter = Sam3DiskSegmenter(checkpoint="hf", device=args.device)
+    # SAM 3.1 is ~3 GB of GPU memory and is only needed for mask/ellipse/normal/
+    # HUD layers. Load it lazily on first use so a bbox-only session never pays
+    # that cost.
+    segmenter = _LazySam3Segmenter(
+        lambda: Sam3DiskSegmenter(checkpoint="hf", device=args.device))
     analyzer = FrameAnalyzer(detector=detector, segmenter=segmenter)
+    print("detector ready. SAM 3.1 loads on first mask/ellipse/normal/HUD use "
+          "(~12s, ~3GB GPU).", flush=True)
 
     app = ViewerApp(analyzer, src, K, args.radius, n_prompts=n_prompts,
                     telemetry=telemetry, arrow_len_m=args.arrow_len_m)

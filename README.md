@@ -183,11 +183,16 @@ checkboxes (Bbox / Mask / Ellipse / Normal / HUD).
 Keyboard: `space` play/pause, `←/→` step one frame, `Shift+←/→` ±1 second,
 `Home/End` first/last frame, `q` or `Esc` quit.
 
+The viewer starts in **bbox-only** mode (detector only). SAM 3.1 (~3 GB GPU,
+~12 s load) is loaded **lazily** the first time you enable a SAM-dependent layer
+(Mask / Ellipse / Normal / HUD) — so a bbox-only session never grabs that
+memory, and bbox-only playback runs at full speed.
+
 A background worker prefetches and caches per-frame inference, so playback runs
 at the selected speed once frames are buffered and layer toggles / re-visits are
-instant. SAM 3.1 is ~0.5 s/frame, so the first pass through new frames is
-inference-bound (the status bar shows "buffering"). Stream mode shows the most
-recently analyzed frame (SAM can't keep up with full stream rate).
+instant. With SAM layers on, SAM is ~0.5 s/frame, so the first pass through new
+frames is inference-bound (the status bar shows "buffering"). Stream mode shows
+the most recently analyzed frame (SAM can't keep up with full stream rate).
 
 Requires a display (`DISPLAY`) and `./setup_env.sh` to have been run. For RTSP,
 if UDP decode fails, force TCP:
