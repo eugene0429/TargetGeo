@@ -6,10 +6,11 @@ import argparse
 import os
 import sys
 
-# Drop the repo dir (and cwd if it IS the repo) from sys.path so the repo's own
-# sam3.py cannot shadow the installed top-level `sam3` package.
-_REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
-sys.path[:] = [p for p in sys.path if os.path.realpath(p or os.curdir) != _REPO]
+# Drop the package root (and cwd if it IS that dir) from sys.path so the repo's
+# own sam3.py cannot shadow the installed top-level `sam3` package. The package
+# files (incl. sam3.py) live one level up from this viewer/ dir.
+_PKG_ROOT = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+sys.path[:] = [p for p in sys.path if os.path.realpath(p or os.curdir) != _PKG_ROOT]
 
 
 def main(argv=None):
