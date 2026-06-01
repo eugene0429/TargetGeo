@@ -29,6 +29,12 @@ MAX_DISPLAY_H = 720
 SPEEDS = (0.25, 0.5, 1.0, 2.0, 4.0)
 LOOKAHEAD = 64  # frames the worker may prefetch ahead of the playhead
 
+# Layers whose overlays require the heavy SAM+ellipse+pose stage. bbox comes
+# from the detector alone (~19 ms), so a bbox-only view skips SAM entirely.
+SAM_LAYERS = ("mask", "ellipse", "normal", "hud")
+RANK_BBOX = 0   # detector only
+RANK_FULL = 1   # detector + SAM + ellipse + pose
+
 
 class ViewerApp:
     def __init__(self, analyzer, source, K, radius, *, n_prompts, telemetry=None,
@@ -55,6 +61,7 @@ class ViewerApp:
         self.playing = False
         self._slider_dragging = False
         self._tk_image = None
+        self._needed_mirror = RANK_FULL  # plain int read by the worker thread
 
         if not self.is_stream:
             self.total = max(1, int(getattr(source, "frame_count", 1)))
@@ -87,6 +94,7 @@ class ViewerApp:
         self._bind_keys()
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
+        self._needed_mirror = self._needed_rank()  # seed before worker starts
         self._worker = threading.Thread(target=self._worker_loop, daemon=True)
         self._worker.start()
 
@@ -174,41 +182,54 @@ class ViewerApp:
     # ---- background worker ---------------------------------------------------
     def _worker_loop(self):
         while not self._stop.is_set():
+            needed = self._needed_mirror  # plain int; tk vars are read only on the UI thread
             if self.is_stream:
                 frame = self.source.latest()
                 if frame is None:
                     self._stop.wait(0.02)
                     continue
-                res = self._analyze(frame, self._tele_for(self.current_idx))
+                res = self._analyze(frame, self._tele_for(self.current_idx), needed)
                 with self._lock:
-                    self._stream_entry = (frame, res)
+                    self._stream_entry = (frame, res, needed)
                 self._stop.wait(0.005)
             else:
-                idx = self._next_to_analyze()
+                idx = self._next_to_analyze(needed)
                 if idx is None:
                     self._stop.wait(0.02)
                     continue
                 frame = self.source.get(idx)
                 if frame is None:
                     with self._lock:
-                        self._cache[idx] = (None, FrameResult(status="read_failed"))
+                        self._cache[idx] = (None, FrameResult(status="read_failed"), needed)
                     continue
-                res = self._analyze(frame, self._tele_for(idx))
+                res = self._analyze(frame, self._tele_for(idx), needed)
                 with self._lock:
-                    self._cache[idx] = (frame, res)
+                    self._cache[idx] = (frame, res, needed)
 
-    def _analyze(self, frame, tele):
+    def _needed_rank(self) -> int:
+        """RANK_FULL if any SAM-dependent layer is on, else RANK_BBOX.
+
+        Reads tk vars, so it MUST be called only on the UI thread. It also
+        refreshes the plain-int mirror the worker thread reads.
+        """
+        rank = RANK_FULL if any(self.layer_vars[k].get() for k in SAM_LAYERS) else RANK_BBOX
+        self._needed_mirror = rank
+        return rank
+
+    def _analyze(self, frame, tele, rank):
         try:
             return self.analyzer.analyze(frame, self.K, self.radius,
-                                         n_prompts=self.n_prompts, telemetry=tele)
+                                         n_prompts=self.n_prompts, telemetry=tele,
+                                         need_sam=(rank >= RANK_FULL))
         except Exception as exc:  # keep the worker alive
             return FrameResult(status=f"error: {exc}")
 
-    def _next_to_analyze(self):
+    def _next_to_analyze(self, needed):
         with self._lock:
             base = self.want_idx
             for i in range(base, min(self.total, base + LOOKAHEAD)):
-                if i not in self._cache:
+                entry = self._cache.get(i)
+                if entry is None or entry[2] < needed:
                     return i
         return None
 
@@ -235,8 +256,10 @@ class ViewerApp:
         if nxt > self.total - 1:
             self._set_playing(False)
             return
+        needed = self._needed_rank()
         with self._lock:
-            ready = nxt in self._cache
+            entry = self._cache.get(nxt)
+            ready = entry is not None and entry[2] >= needed
         self.want_idx = nxt
         if ready:
             self.current_idx = nxt
@@ -310,11 +333,12 @@ class ViewerApp:
     def _poll_stream(self):
         if self._stop.is_set():
             return
+        self._needed_rank()  # refresh the worker's rank mirror from current toggles
         if self.playing:
             with self._lock:
                 entry = self._stream_entry
             if entry is not None:
-                frame, res = entry
+                frame, res = entry[0], entry[1]
                 self._draw(render(frame, res, self.K, self._layers(), self.arrow_len_m))
                 self._set_status_result(res, prefix="stream")
             else:
@@ -324,6 +348,7 @@ class ViewerApp:
     def _refresh_canvas(self):
         if self.is_stream:
             return
+        needed = self._needed_rank()
         with self._lock:
             entry = self._cache.get(self.current_idx)
         if entry is None or entry[0] is None:
@@ -331,17 +356,22 @@ class ViewerApp:
             self.want_idx = self.current_idx
             self.root.after(40, self._refresh_if_current)
             return
-        frame, res = entry
+        frame, res, rank = entry
         self._draw(render(frame, res, self.K, self._layers(), self.arrow_len_m))
         self._set_status_result(res)
+        if rank < needed:
+            # show what we have (e.g. bbox) now; upgrade with SAM layers when ready
+            self.want_idx = self.current_idx
+            self.root.after(60, self._refresh_if_current)
 
     def _refresh_if_current(self):
-        # re-attempt drawing the frame the user is parked on, once cached
+        # re-render the frame the user is parked on once it reaches the needed rank
         if self._stop.is_set() or self.playing:
             return
+        needed = self._needed_rank()
         with self._lock:
             entry = self._cache.get(self.current_idx)
-        if entry is not None and entry[0] is not None:
+        if entry is not None and entry[0] is not None and entry[2] >= needed:
             self._refresh_canvas()
         else:
             self.root.after(60, self._refresh_if_current)

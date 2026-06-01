@@ -97,11 +97,18 @@ class FrameAnalyzer:
         self.max_normal_cone_deg = float(max_normal_cone_deg)
         self.pixel_sigma_px = float(pixel_sigma_px)
 
-    def analyze(self, frame, K, radius, n_prompts=3, telemetry=None) -> FrameResult:
+    def analyze(self, frame, K, radius, n_prompts=3, telemetry=None,
+                need_sam=True) -> FrameResult:
         H, W = frame.shape[:2]
         bbox = self._detector.detect(frame)
         if bbox is None:
             return FrameResult(status="no_detection")
+
+        # Fast path: only the detector bbox is needed (mask/ellipse/normal/HUD
+        # off). Skip the heavy SAM + ellipse + pose stages entirely (~19 ms vs
+        # ~0.5 s/frame), so bbox-only playback runs at full speed.
+        if not need_sam:
+            return FrameResult(status="ok", valid=True, bbox=tuple(bbox))
 
         try:
             crop, crop_xyxy = crop_to_bbox(frame, bbox, pad_ratio=self.crop_pad_ratio)
