@@ -79,3 +79,67 @@ def test_draw_mask_none_is_noop():
     img = _blank()
     draw_mask(img, None)
     assert img.sum() == 0
+
+
+from types import SimpleNamespace
+from seg_pose.viewer.overlays import draw_normal, draw_hud, render
+
+
+def _result_ok():
+    return SimpleNamespace(
+        status="ok", valid=True,
+        bbox=(20, 20, 80, 80),
+        mask_contour=np.array([[[20, 20]], [[20, 80]], [[80, 80]], [[80, 20]]], dtype=np.int32),
+        ellipse={"cx": 50.0, "cy": 50.0, "major": 40.0, "minor": 30.0, "theta": 10.0},
+        candidates=[(np.array([0.0, 0.0, 10.0]), np.array([1.0, 0.0, 0.0])),
+                    (np.array([0.0, 0.0, 10.0]), np.array([0.0, 1.0, 0.0]))],
+        chosen_idx=0,
+        normal_camera=(1.0, 0.0, 0.0),
+        offset_camera_m=(0.0, 0.0, 10.0),
+        range_m=10.0, cone_deg=1.5,
+        disambiguation_method="visibility", fit_method="hull", sam_score=0.9,
+        flags=[], lat=None, lon=None, alt_m=None, normal_world=None,
+    )
+
+
+def _K200():
+    return np.array([[200.0, 0.0, 50.0], [0.0, 200.0, 50.0], [0.0, 0.0, 1.0]])
+
+
+def test_draw_normal_draws_something():
+    img = np.zeros((100, 100, 3), dtype=np.uint8)
+    draw_normal(img, _result_ok(), _K200(), arrow_len_m=2.0)
+    assert img.sum() > 0
+
+
+def test_draw_hud_returns_same_shape_and_writes_text():
+    img = np.zeros((480, 640, 3), dtype=np.uint8)
+    draw_hud(img, _result_ok())
+    assert img.shape == (480, 640, 3)
+    assert img.sum() > 0
+
+
+def test_draw_hud_shows_na_without_telemetry():
+    # Smoke: no telemetry -> still renders without error
+    img = np.zeros((480, 640, 3), dtype=np.uint8)
+    draw_hud(img, _result_ok())  # lat/lon None
+    assert img.sum() > 0
+
+
+def test_render_all_layers_changes_image():
+    img = np.zeros((100, 100, 3), dtype=np.uint8)
+    out = render(img, _result_ok(), _K200(),
+                 layers={"bbox": True, "ellipse": True, "mask": True,
+                         "normal": True, "hud": True},
+                 arrow_len_m=2.0)
+    assert out.shape == img.shape
+    assert out.sum() > 0
+
+
+def test_render_respects_layer_toggles():
+    img = np.zeros((100, 100, 3), dtype=np.uint8)
+    out = render(img, _result_ok(), _K200(),
+                 layers={"bbox": False, "ellipse": False, "mask": False,
+                         "normal": False, "hud": False},
+                 arrow_len_m=2.0)
+    assert out.sum() == 0
