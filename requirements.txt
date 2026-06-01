@@ -1,0 +1,8 @@
+torch>=2.0
+opencv-python>=4.8
+numpy>=1.24
+Pillow>=10.0
+huggingface_hub>=0.20
+pymap3d>=3.0
+ultralytics>=8.0
+sam3 @ git+https://github.com/facebookresearch/sam3

@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Model weights (supplied per deployment — see README)
+models/*.pt
+models/*.pth
+!models/.gitkeep
+
+# Local env / editor
+.venv/
+.env
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+
+# Viewer outputs (recorded overlays, caches)
+*.mp4
+*.avi
+recordings/
