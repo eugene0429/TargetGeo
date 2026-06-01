@@ -68,3 +68,24 @@ def test_analyzer_no_detection_returns_status():
     assert res.valid is False
     assert res.status == "no_detection"
     assert res.bbox is None
+
+
+from seg_pose.pose_types import DroneStateGps
+
+
+def test_analyzer_gps_telemetry_fills_geodetic():
+    analyzer = FrameAnalyzer(
+        detector=_FakeDetector((140, 140, 260, 260)),
+        segmenter=_FakeSegmenter(),
+    )
+    K = _K()
+    state = DroneStateGps(
+        camera_lat=37.5063, camera_lon=127.0125, camera_alt_m=80.0,
+        camera_pyr_deg=(-30.0, 45.0, 0.0), K=K,
+    )
+    res = analyzer.analyze(_synthetic_frame(), K, radius=2.5, n_prompts=1, telemetry=state)
+    assert res.valid is True
+    assert res.lat is not None and res.lon is not None and res.alt_m is not None
+    assert res.normal_world is not None and len(res.normal_world) == 3
+    # world-up prior should be used for disambiguation
+    assert res.disambiguation_method in ("world_up_axis", "fallback")
