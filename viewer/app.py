@@ -125,14 +125,20 @@ class ViewerApp:
         title = "TargetGeo viewer — " + ("stream" if self.is_stream else "file")
         self.root.title(title)
 
+        # File-only widgets: built in all modes for a consistent layout, but
+        # disabled (greyed out) in stream mode where seeking/speed make no sense.
+        self._file_only = []
+
         top = ttk.Frame(self.root, padding=4)
         top.pack(side=tk.TOP, fill=tk.X)
 
         self.play_btn = ttk.Button(top, text="▶ Play", width=10, command=self.toggle_play)
         self.play_btn.pack(side=tk.LEFT)
-        if not self.is_stream:
-            ttk.Button(top, text="◀", width=3, command=lambda: self.step(-1)).pack(side=tk.LEFT, padx=2)
-            ttk.Button(top, text="▶", width=3, command=lambda: self.step(+1)).pack(side=tk.LEFT, padx=2)
+        b_prev = ttk.Button(top, text="◀", width=3, command=lambda: self.step(-1))
+        b_prev.pack(side=tk.LEFT, padx=2)
+        b_next = ttk.Button(top, text="▶", width=3, command=lambda: self.step(+1))
+        b_next.pack(side=tk.LEFT, padx=2)
+        self._file_only += [b_prev, b_next]
 
         ttk.Separator(top, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=8)
         for key, label in (("bbox", "Bbox"), ("mask", "Mask"), ("ellipse", "Ellipse"),
@@ -140,32 +146,41 @@ class ViewerApp:
             ttk.Checkbutton(top, text=label, variable=self.layer_vars[key],
                             command=self._refresh_canvas).pack(side=tk.LEFT)
 
-        if not self.is_stream:
-            ttk.Separator(top, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=8)
-            ttk.Label(top, text="Speed:").pack(side=tk.LEFT)
-            for s in SPEEDS:
-                ttk.Button(top, text=f"{s:g}x", width=4,
-                           command=lambda s=s: self.speed_var.set(s)).pack(side=tk.LEFT, padx=1)
+        ttk.Separator(top, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=8)
+        self._speed_label = ttk.Label(top, text="Speed:")
+        self._speed_label.pack(side=tk.LEFT)
+        for s in SPEEDS:
+            b = ttk.Button(top, text=f"{s:g}x", width=4,
+                           command=lambda s=s: self.speed_var.set(s))
+            b.pack(side=tk.LEFT, padx=1)
+            self._file_only.append(b)
 
         self.canvas = tk.Canvas(self.root, width=self.disp_w, height=self.disp_h, bg="#222")
         self.canvas.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
 
-        if not self.is_stream:
-            mid = ttk.Frame(self.root, padding=4)
-            mid.pack(side=tk.TOP, fill=tk.X)
-            self.slider = ttk.Scale(mid, from_=0, to=max(self.total - 1, 0),
-                                    orient=tk.HORIZONTAL, command=self._on_slider_change)
-            self.slider.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 8))
-            self.slider.bind("<ButtonPress-1>", self._on_slider_press)
-            self.slider.bind("<ButtonRelease-1>", self._on_slider_release)
-            ttk.Label(mid, text="Jump:").pack(side=tk.LEFT)
-            self.jump_entry = ttk.Entry(mid, width=10)
-            self.jump_entry.pack(side=tk.LEFT, padx=2)
-            self.jump_entry.bind("<Return>", lambda e: self._jump_from_entry("frame"))
-            ttk.Button(mid, text="frame", width=6,
-                       command=lambda: self._jump_from_entry("frame")).pack(side=tk.LEFT)
-            ttk.Button(mid, text="sec", width=5,
-                       command=lambda: self._jump_from_entry("sec")).pack(side=tk.LEFT)
+        mid = ttk.Frame(self.root, padding=4)
+        mid.pack(side=tk.TOP, fill=tk.X)
+        self.slider = ttk.Scale(mid, from_=0, to=max(self.total - 1, 0),
+                                orient=tk.HORIZONTAL, command=self._on_slider_change)
+        self.slider.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 8))
+        self.slider.bind("<ButtonPress-1>", self._on_slider_press)
+        self.slider.bind("<ButtonRelease-1>", self._on_slider_release)
+        ttk.Label(mid, text="Jump:").pack(side=tk.LEFT)
+        self.jump_entry = ttk.Entry(mid, width=10)
+        self.jump_entry.pack(side=tk.LEFT, padx=2)
+        self.jump_entry.bind("<Return>", lambda e: self._jump_from_entry("frame"))
+        b_jf = ttk.Button(mid, text="frame", width=6,
+                          command=lambda: self._jump_from_entry("frame"))
+        b_jf.pack(side=tk.LEFT)
+        b_js = ttk.Button(mid, text="sec", width=5,
+                          command=lambda: self._jump_from_entry("sec"))
+        b_js.pack(side=tk.LEFT)
+        self._file_only += [self.slider, self.jump_entry, b_jf, b_js]
+
+        if self.is_stream:
+            for w in self._file_only:
+                w.state(["disabled"])
+            self._speed_label.state(["disabled"])
 
         self.status = ttk.Label(self.root, text="", anchor="w", padding=4)
         self.status.pack(side=tk.BOTTOM, fill=tk.X)
