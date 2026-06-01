@@ -1,7 +1,7 @@
 """SAM variant comparison runner.
 
 Usage (run from a NEUTRAL cwd so the local sam3.py does not shadow the package):
-    cd /tmp && /home/sim2real/TargetGeo/.venv/bin/python -m benchmarks.sam_compare.bench \
+    cd /tmp && /home/sim2real/TargetGeo/.venv/bin/python -m seg_pose.benchmarks.sam_compare.bench \
         --root /home/sim2real/TargetGeo --limit 5
 """
 
