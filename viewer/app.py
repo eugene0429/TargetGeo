@@ -1,19 +1,33 @@
-"""Interactive cv2 window with a background inference worker thread."""
+"""Tkinter video viewer for the seg_pose pipeline.
+
+A real player UI: ▶/❚❚ play-pause, ◀ ▶ frame step, scrubbable slider, speed
+buttons, frame/second jump, per-layer toggles, and a status bar — modelled on
+the original tools/m2 viewer but driven by the seg_pose FrameAnalyzer.
+
+SAM 3.1 is heavy (~0.5 s/frame), so a background worker prefetches and caches
+per-frame results; the UI plays through cached frames at the chosen speed and
+shows a "analyzing…" placeholder while the worker catches up. Layer toggles and
+re-visits are instant (no re-inference).
+"""
 
 from __future__ import annotations
 
 import threading
 import time
+import tkinter as tk
+from tkinter import ttk
 
 import cv2
 import numpy as np
+from PIL import Image, ImageTk
 
 from seg_pose.viewer.overlays import render
+from seg_pose.viewer.inference import FrameResult
 
-WINDOW = "TargetGeo viewer"
-DEFAULT_LAYERS = {"bbox": True, "ellipse": True, "mask": True, "normal": True, "hud": True}
-KEY_TOGGLES = {ord("b"): "bbox", ord("e"): "ellipse", ord("m"): "mask",
-               ord("n"): "normal", ord("h"): "hud"}
+MAX_DISPLAY_W = 1280
+MAX_DISPLAY_H = 720
+SPEEDS = (0.25, 0.5, 1.0, 2.0, 4.0)
+LOOKAHEAD = 64  # frames the worker may prefetch ahead of the playhead
 
 
 class ViewerApp:
@@ -26,130 +40,356 @@ class ViewerApp:
         self.n_prompts = int(n_prompts)
         self.telemetry = telemetry or {}
         self.arrow_len_m = float(arrow_len_m if arrow_len_m is not None else radius)
-        self.layers = dict(DEFAULT_LAYERS)
-        self._cache: dict[int, object] = {}
+        self.is_stream = bool(getattr(source, "is_stream", False))
+
+        # shared state (worker writes, UI reads)
+        self._cache: dict[int, tuple] = {}
+        self._stream_entry: tuple | None = None
         self._lock = threading.Lock()
         self._stop = threading.Event()
-        self._req_idx = 0
-        self._req_frame = None
-        self._worker = None
+        self._worker: threading.Thread | None = None
 
-    # ---- worker -----------------------------------------------------------
+        # playback state (UI thread only)
+        self.current_idx = 0
+        self.want_idx = 0
+        self.playing = False
+        self._slider_dragging = False
+        self._tk_image = None
+
+        if not self.is_stream:
+            self.total = max(1, int(getattr(source, "frame_count", 1)))
+            self.fps = float(getattr(source, "fps", 30.0)) or 30.0
+        else:
+            self.total = 0
+            self.fps = float(getattr(source, "fps", 30.0)) or 30.0
+
+    # ---- entry point --------------------------------------------------------
+    def run(self):
+        self.root = tk.Tk()
+        self.speed_var = tk.DoubleVar(value=1.0)
+        self.layer_vars = {
+            "bbox": tk.BooleanVar(value=True),
+            "mask": tk.BooleanVar(value=True),
+            "ellipse": tk.BooleanVar(value=True),
+            "normal": tk.BooleanVar(value=True),
+            "hud": tk.BooleanVar(value=True),
+        }
+
+        first = self._grab_initial_frame()
+        if first is None:
+            self.root.destroy()
+            raise SystemExit("no frame available from source")
+        fh, fw = first.shape[:2]
+        scale = min(MAX_DISPLAY_W / fw, MAX_DISPLAY_H / fh, 1.0)
+        self.disp_w, self.disp_h = int(fw * scale), int(fh * scale)
+
+        self._build_ui()
+        self._bind_keys()
+        self.root.protocol("WM_DELETE_WINDOW", self._on_close)
+
+        self._worker = threading.Thread(target=self._worker_loop, daemon=True)
+        self._worker.start()
+
+        if self.is_stream:
+            self._set_playing(True)   # show incoming frames immediately
+            self._poll_stream()
+        else:
+            self.want_idx = 0
+            self._refresh_canvas()    # self-schedules until frame 0 is cached
+
+        self.root.mainloop()
+
+    def _grab_initial_frame(self):
+        if self.is_stream:
+            for _ in range(200):
+                f = self.source.latest()
+                if f is not None:
+                    return f
+                time.sleep(0.02)
+            return None
+        return self.source.get(0)
+
+    # ---- UI ------------------------------------------------------------------
+    def _build_ui(self):
+        title = "TargetGeo viewer — " + ("stream" if self.is_stream else "file")
+        self.root.title(title)
+
+        top = ttk.Frame(self.root, padding=4)
+        top.pack(side=tk.TOP, fill=tk.X)
+
+        self.play_btn = ttk.Button(top, text="▶ Play", width=10, command=self.toggle_play)
+        self.play_btn.pack(side=tk.LEFT)
+        if not self.is_stream:
+            ttk.Button(top, text="◀", width=3, command=lambda: self.step(-1)).pack(side=tk.LEFT, padx=2)
+            ttk.Button(top, text="▶", width=3, command=lambda: self.step(+1)).pack(side=tk.LEFT, padx=2)
+
+        ttk.Separator(top, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=8)
+        for key, label in (("bbox", "Bbox"), ("mask", "Mask"), ("ellipse", "Ellipse"),
+                           ("normal", "Normal"), ("hud", "HUD")):
+            ttk.Checkbutton(top, text=label, variable=self.layer_vars[key],
+                            command=self._refresh_canvas).pack(side=tk.LEFT)
+
+        if not self.is_stream:
+            ttk.Separator(top, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=8)
+            ttk.Label(top, text="Speed:").pack(side=tk.LEFT)
+            for s in SPEEDS:
+                ttk.Button(top, text=f"{s:g}x", width=4,
+                           command=lambda s=s: self.speed_var.set(s)).pack(side=tk.LEFT, padx=1)
+
+        self.canvas = tk.Canvas(self.root, width=self.disp_w, height=self.disp_h, bg="#222")
+        self.canvas.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+
+        if not self.is_stream:
+            mid = ttk.Frame(self.root, padding=4)
+            mid.pack(side=tk.TOP, fill=tk.X)
+            self.slider = ttk.Scale(mid, from_=0, to=max(self.total - 1, 0),
+                                    orient=tk.HORIZONTAL, command=self._on_slider_change)
+            self.slider.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 8))
+            self.slider.bind("<ButtonPress-1>", self._on_slider_press)
+            self.slider.bind("<ButtonRelease-1>", self._on_slider_release)
+            ttk.Label(mid, text="Jump:").pack(side=tk.LEFT)
+            self.jump_entry = ttk.Entry(mid, width=10)
+            self.jump_entry.pack(side=tk.LEFT, padx=2)
+            self.jump_entry.bind("<Return>", lambda e: self._jump_from_entry("frame"))
+            ttk.Button(mid, text="frame", width=6,
+                       command=lambda: self._jump_from_entry("frame")).pack(side=tk.LEFT)
+            ttk.Button(mid, text="sec", width=5,
+                       command=lambda: self._jump_from_entry("sec")).pack(side=tk.LEFT)
+
+        self.status = ttk.Label(self.root, text="", anchor="w", padding=4)
+        self.status.pack(side=tk.BOTTOM, fill=tk.X)
+
+    def _bind_keys(self):
+        self.root.bind("<space>", lambda e: self.toggle_play())
+        self.root.bind("q", lambda e: self._on_close())
+        self.root.bind("<Escape>", lambda e: self._on_close())
+        if not self.is_stream:
+            self.root.bind("<Left>", lambda e: self.step(-1))
+            self.root.bind("<Right>", lambda e: self.step(+1))
+            self.root.bind("<Shift-Left>", lambda e: self.step(-int(self.fps)))
+            self.root.bind("<Shift-Right>", lambda e: self.step(+int(self.fps)))
+            self.root.bind("<Home>", lambda e: self.seek(0))
+            self.root.bind("<End>", lambda e: self.seek(self.total - 1))
+
+    # ---- background worker ---------------------------------------------------
     def _worker_loop(self):
-        last_done = object()
         while not self._stop.is_set():
-            with self._lock:
-                idx, frame = self._req_idx, self._req_frame
-            key = idx if not self.source.is_stream else id(frame)
-            if frame is None or key == last_done or (not self.source.is_stream and idx in self._cache):
-                time.sleep(0.005)
-                continue
-            tele = self._telemetry_for(idx)
-            try:
-                result = self.analyzer.analyze(frame, self.K, self.radius,
-                                               n_prompts=self.n_prompts, telemetry=tele)
-            except Exception as exc:  # keep the UI alive
-                from seg_pose.viewer.inference import FrameResult
-                result = FrameResult(status=f"error: {exc}")
-            with self._lock:
-                self._cache[key] = (frame, result)
-            last_done = key
+            if self.is_stream:
+                frame = self.source.latest()
+                if frame is None:
+                    self._stop.wait(0.02)
+                    continue
+                res = self._analyze(frame, self._tele_for(self.current_idx))
+                with self._lock:
+                    self._stream_entry = (frame, res)
+                self._stop.wait(0.005)
+            else:
+                idx = self._next_to_analyze()
+                if idx is None:
+                    self._stop.wait(0.02)
+                    continue
+                frame = self.source.get(idx)
+                if frame is None:
+                    with self._lock:
+                        self._cache[idx] = (None, FrameResult(status="read_failed"))
+                    continue
+                res = self._analyze(frame, self._tele_for(idx))
+                with self._lock:
+                    self._cache[idx] = (frame, res)
 
-    def _telemetry_for(self, idx):
+    def _analyze(self, frame, tele):
+        try:
+            return self.analyzer.analyze(frame, self.K, self.radius,
+                                         n_prompts=self.n_prompts, telemetry=tele)
+        except Exception as exc:  # keep the worker alive
+            return FrameResult(status=f"error: {exc}")
+
+    def _next_to_analyze(self):
+        with self._lock:
+            base = self.want_idx
+            for i in range(base, min(self.total, base + LOOKAHEAD)):
+                if i not in self._cache:
+                    return i
+        return None
+
+    def _tele_for(self, idx):
         from seg_pose.viewer.telemetry import build_state
         row = self.telemetry.get(idx)
         return build_state(row, self.K) if row else None
 
-    # ---- run loops --------------------------------------------------------
-    def run(self):
-        cv2.namedWindow(WINDOW, cv2.WINDOW_NORMAL)
-        self._worker = threading.Thread(target=self._worker_loop, daemon=True)
-        self._worker.start()
+    # ---- playback ------------------------------------------------------------
+    def toggle_play(self):
+        self.playing = not self.playing
+        self.play_btn.config(text="❚❚ Pause" if self.playing else "▶ Play")
+        if self.playing:
+            (self._tick_stream if self.is_stream else self._tick_file)()
+
+    def _set_playing(self, on: bool):
+        self.playing = on
+        self.play_btn.config(text="❚❚ Pause" if on else "▶ Play")
+
+    def _tick_file(self):
+        if not self.playing:
+            return
+        nxt = self.current_idx + 1
+        if nxt > self.total - 1:
+            self._set_playing(False)
+            return
+        with self._lock:
+            ready = nxt in self._cache
+        self.want_idx = nxt
+        if ready:
+            self.current_idx = nxt
+            self._refresh_canvas()
+            self._sync_slider(nxt)
+            delay = max(1, int(1000.0 / max(self.fps * self.speed_var.get(), 0.1)))
+            self.root.after(delay, self._tick_file)
+        else:
+            self._set_status(f"buffering frame {nxt} …")
+            self.root.after(20, self._tick_file)
+
+    def _tick_stream(self):
+        # stream playback is driven by _poll_stream; nothing to schedule here.
+        return
+
+    def step(self, delta: int):
+        if self.playing:
+            self.toggle_play()
+        self.seek(self.current_idx + delta)
+
+    def seek(self, idx: int):
+        idx = max(0, min(self.total - 1, int(idx)))
+        self.current_idx = idx
+        self.want_idx = idx
+        self._refresh_canvas()
+        self._sync_slider(idx)
+
+    # ---- slider / jump -------------------------------------------------------
+    def _on_slider_press(self, _ev):
+        self._slider_dragging = True
+        if self.playing:
+            self.toggle_play()
+
+    def _on_slider_change(self, val):
+        if not self._slider_dragging:
+            return
         try:
-            if self.source.is_stream:
-                self.source.start()
-                self._run_stream()
-            else:
-                self._run_file()
-        finally:
-            self._stop.set()
-            self.source.release()
-            cv2.destroyAllWindows()
+            idx = int(float(val))
+        except ValueError:
+            return
+        self.current_idx = max(0, min(self.total - 1, idx))
+        self.want_idx = self.current_idx
+        self._refresh_canvas()
 
-    def _request(self, idx, frame):
-        with self._lock:
-            self._req_idx, self._req_frame = idx, frame
+    def _on_slider_release(self, _ev):
+        self._slider_dragging = False
+        self.want_idx = self.current_idx
+        self._refresh_canvas()
 
-    def _cached(self, key):
-        with self._lock:
-            return self._cache.get(key)
+    def _sync_slider(self, idx):
+        if self.is_stream:
+            return
+        prev = self._slider_dragging
+        self._slider_dragging = False
+        self.slider.set(idx)
+        self._slider_dragging = prev
 
-    def _run_file(self):
-        n = max(1, self.source.frame_count)
-        idx, playing = 0, False
-        cv2.createTrackbar("frame", WINDOW, 0, n - 1, lambda v: None)
-        while True:
-            idx = cv2.getTrackbarPos("frame", WINDOW)
-            frame = self.source.get(idx)
-            if frame is None:
-                frame = np.zeros((480, 640, 3), dtype=np.uint8)
-            self._request(idx, frame)
-            entry = self._cached(idx)
+    def _jump_from_entry(self, unit: str):
+        s = self.jump_entry.get().strip()
+        if not s:
+            return
+        try:
+            v = float(s)
+        except ValueError:
+            self._set_status(f"invalid jump value: {s}")
+            return
+        idx = int(round(v * self.fps)) if unit == "sec" else int(round(v))
+        self.seek(idx)
+
+    # ---- rendering -----------------------------------------------------------
+    def _poll_stream(self):
+        if self._stop.is_set():
+            return
+        if self.playing:
+            with self._lock:
+                entry = self._stream_entry
             if entry is not None:
-                base, result = entry
-                shown = render(base, result, self.K, self.layers, self.arrow_len_m)
+                frame, res = entry
+                self._draw(render(frame, res, self.K, self._layers(), self.arrow_len_m))
+                self._set_status_result(res, prefix="stream")
             else:
-                shown = frame.copy()
-                cv2.putText(shown, "analyzing...", (12, 28),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2, cv2.LINE_AA)
-            cv2.imshow(WINDOW, shown)
-            key = cv2.waitKey(15) & 0xFF
-            if key == ord("q"):
-                break
-            if not self._handle_common_key(key):
-                if key == ord(" "):
-                    playing = not playing
-                elif key in (81, ord(",")):  # left
-                    idx = max(0, idx - 1); cv2.setTrackbarPos("frame", WINDOW, idx)
-                elif key in (83, ord(".")):  # right
-                    idx = min(n - 1, idx + 1); cv2.setTrackbarPos("frame", WINDOW, idx)
-            if playing and idx in self._cache:
-                idx = min(n - 1, idx + 1)
-                cv2.setTrackbarPos("frame", WINDOW, idx)
+                self._set_status("connecting to stream …")
+        self.root.after(33, self._poll_stream)
 
-    def _run_stream(self):
-        while True:
-            frame = self.source.latest()
-            if frame is None:
-                blank = np.zeros((480, 640, 3), dtype=np.uint8)
-                cv2.putText(blank, "connecting to stream...", (12, 28),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2, cv2.LINE_AA)
-                cv2.imshow(WINDOW, blank)
-            else:
-                self._request(0, frame)
-                # show the most recently analyzed frame together with its overlay
-                latest_entry = None
-                with self._lock:
-                    if self._cache:
-                        latest_entry = list(self._cache.values())[-1]
-                        # keep the cache bounded
-                        if len(self._cache) > 4:
-                            for k in list(self._cache.keys())[:-2]:
-                                self._cache.pop(k, None)
-                if latest_entry is not None:
-                    base, result = latest_entry
-                    shown = render(base, result, self.K, self.layers, self.arrow_len_m)
-                else:
-                    shown = frame.copy()
-                cv2.imshow(WINDOW, shown)
-            key = cv2.waitKey(15) & 0xFF
-            if key == ord("q"):
-                break
-            self._handle_common_key(key)
+    def _refresh_canvas(self):
+        if self.is_stream:
+            return
+        with self._lock:
+            entry = self._cache.get(self.current_idx)
+        if entry is None or entry[0] is None:
+            self._draw_placeholder(f"analyzing frame {self.current_idx} …")
+            self.want_idx = self.current_idx
+            self.root.after(40, self._refresh_if_current)
+            return
+        frame, res = entry
+        self._draw(render(frame, res, self.K, self._layers(), self.arrow_len_m))
+        self._set_status_result(res)
 
-    def _handle_common_key(self, key) -> bool:
-        if key in KEY_TOGGLES:
-            layer = KEY_TOGGLES[key]
-            self.layers[layer] = not self.layers[layer]
-            return True
-        return False
+    def _refresh_if_current(self):
+        # re-attempt drawing the frame the user is parked on, once cached
+        if self._stop.is_set() or self.playing:
+            return
+        with self._lock:
+            entry = self._cache.get(self.current_idx)
+        if entry is not None and entry[0] is not None:
+            self._refresh_canvas()
+        else:
+            self.root.after(60, self._refresh_if_current)
+
+    def _layers(self):
+        return {k: v.get() for k, v in self.layer_vars.items()}
+
+    def _draw(self, bgr):
+        small = cv2.resize(bgr, (self.disp_w, self.disp_h), interpolation=cv2.INTER_AREA)
+        rgb = cv2.cvtColor(small, cv2.COLOR_BGR2RGB)
+        self._tk_image = ImageTk.PhotoImage(Image.fromarray(rgb))
+        self.canvas.delete("all")
+        self.canvas.create_image(self.disp_w // 2, self.disp_h // 2,
+                                 image=self._tk_image, anchor=tk.CENTER)
+
+    def _draw_placeholder(self, msg):
+        self.canvas.delete("all")
+        self.canvas.create_text(self.disp_w // 2, self.disp_h // 2, text=msg,
+                                 fill="#ddd", font=("TkDefaultFont", 16))
+
+    def _set_status(self, text):
+        self.status.config(text=text)
+
+    def _set_status_result(self, res, prefix=None):
+        if self.is_stream:
+            head = "stream"
+        else:
+            t = self.current_idx / max(self.fps, 1.0)
+            total_t = self.total / max(self.fps, 1.0)
+            head = (f"frame {self.current_idx}/{self.total - 1} · {t:6.2f}/{total_t:.2f}s "
+                    f"· {self.speed_var.get():g}x · cache {len(self._cache)}")
+        rng = "N/A" if getattr(res, "range_m", None) is None else f"{res.range_m:.2f}m"
+        cone = "N/A" if getattr(res, "cone_deg", None) is None else f"{res.cone_deg:.1f}°"
+        n = getattr(res, "normal_camera", None)
+        nstr = "N/A" if n is None else "(" + ",".join(f"{x:+.2f}" for x in n) + ")"
+        geo = "" if getattr(res, "lat", None) is None else \
+            f" · geo {res.lat:.5f},{res.lon:.5f},{res.alt_m:.1f}m"
+        self.status.config(
+            text=(f"{head} · status={res.status} · range={rng} · cone={cone} "
+                  f"· n_cam={nstr}{geo}"))
+
+    # ---- shutdown ------------------------------------------------------------
+    def _on_close(self):
+        self._stop.set()
+        if self._worker is not None:
+            self._worker.join(timeout=2.0)
+        try:
+            self.source.release()
+        except Exception:
+            pass
+        self.root.destroy()

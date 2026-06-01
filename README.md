@@ -175,7 +175,20 @@ uncertainty cone. Without telemetry the geodetic fields show "N/A"; supply a
 `--telemetry` CSV (`frame,lat,lon,alt_m,pitch,yaw,roll`) to fill lat/lon/alt and
 the world-frame normal.
 
-Controls: `space` play/pause, `←/→` step, `b/e/m/n/h` toggle layers, `q` quit.
-File mode runs lazily and caches per frame; stream mode shows the most recently
-analyzed frame (SAM cannot keep up with full stream rate). Requires
-`./setup_env.sh` to have been run.
+A Tkinter window provides a full player: a **▶ Play / ❚❚ Pause** button,
+**◀ ▶** frame-step buttons, a scrubbable **slider**, **speed** buttons
+(0.25×–4×), a **Jump** box (by frame or second), and per-layer toggle
+checkboxes (Bbox / Mask / Ellipse / Normal / HUD).
+
+Keyboard: `space` play/pause, `←/→` step one frame, `Shift+←/→` ±1 second,
+`Home/End` first/last frame, `q` or `Esc` quit.
+
+A background worker prefetches and caches per-frame inference, so playback runs
+at the selected speed once frames are buffered and layer toggles / re-visits are
+instant. SAM 3.1 is ~0.5 s/frame, so the first pass through new frames is
+inference-bound (the status bar shows "buffering"). Stream mode shows the most
+recently analyzed frame (SAM can't keep up with full stream rate).
+
+Requires a display (`DISPLAY`) and `./setup_env.sh` to have been run. For RTSP,
+if UDP decode fails, force TCP:
+`OPENCV_FFMPEG_CAPTURE_OPTIONS="rtsp_transport;tcp" ./run_viewer.sh rtsp://...`.
