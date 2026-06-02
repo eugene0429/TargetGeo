@@ -55,9 +55,7 @@ def run(root: Path, limit: Optional[int], warmup: int, device: str,
     ensure_seg_pose_importable(root)
     from seg_pose.detector import TargetDetector
     from seg_pose.sam3 import crop_to_bbox
-    from .adapters import (
-        Sam31Adapter, FastSamAdapter, MobileSamAdapter, EdgeSamAdapter,
-    )
+    from .adapters import Sam31Adapter, FastSamAdapter
     from .viz import make_panel, save_panel
 
     data_dir = root / "data" / "real"
@@ -89,9 +87,7 @@ def run(root: Path, limit: Optional[int], warmup: int, device: str,
     adapters = [
         Sam31Adapter(device=device),
         FastSamAdapter(device=device, prompt_mode="text"),
-        FastSamAdapter(device=device, prompt_mode="point"),
-        MobileSamAdapter(device=device),
-        EdgeSamAdapter(device=device),
+        FastSamAdapter(device=device, prompt_mode="point+text"),
     ]
     adapters = [a for a in adapters if a.available]
     print(f"[bench] models: {[a.name for a in adapters]}")
@@ -167,7 +163,7 @@ def _build_summary(rows: List[Dict], lat: Dict[str, List[float]],
         f"# SAM variant comparison ({len(used)} frames, IoU reference = sam3.1)",
         "",
         "Pipeline-faithful: YOLO bbox -> crop (15% pad) -> segment disk in crop.",
-        "Prompts: sam3.1 & fastsam-text = text; fastsam-point/mobilesam/edgesam = point at box center.",
+        "sam3.1 = crop+text (ref); fastsam-text = crop+text (same input); fastsam-point+text = crop+point+text.",
         "",
         "| model | mean ms | median ms | p90 ms | mean IoU vs sam3.1 | ellipse ok % |",
         "|---|---|---|---|---|---|",

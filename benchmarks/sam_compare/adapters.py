@@ -103,9 +103,12 @@ class Sam31Adapter(BoxSegmenter):
 
 
 class FastSamAdapter(BoxSegmenter):
-    """FastSAM with either TEXT (CLIP, same production prompts) or POINT (box center).
+    """FastSAM on the crop, prompted by text and/or a center point.
 
-    prompt_mode: "text" -> name "fastsam-text"; "point" -> name "fastsam-point".
+    prompt_mode:
+      "text"        -> name "fastsam-text"       : text only (same input as sam3.1)
+      "point"       -> name "fastsam-point"      : center point only
+      "point+text"  -> name "fastsam-point+text" : center point AND text in one call
     """
 
     def __init__(self, device: str = "cuda", weights: str = "FastSAM-s.pt",
@@ -117,7 +120,7 @@ class FastSamAdapter(BoxSegmenter):
         try:
             from ultralytics import FastSAM
             self._model = FastSAM(weights)
-            if prompt_mode == "text":
+            if "text" in prompt_mode:
                 from seg_pose.estimator import DEFAULT_TEXT_PROMPTS
                 self._prompts = tuple(DEFAULT_TEXT_PROMPTS)
             self.available = True
@@ -136,11 +139,16 @@ class FastSamAdapter(BoxSegmenter):
                 device=self.device, verbose=False,
             )
             return _ultra_best_mask(res[0], h, w) if res else None
-        # text: try each production prompt, keep the highest-CLIP-conf mask.
+        # text or point+text: try each production prompt (optionally with the
+        # center point), keep the highest-CLIP-conf mask.
+        pt_kwargs = {}
+        if self.prompt_mode == "point+text":
+            px, py = _box_center(box)
+            pt_kwargs = {"points": [[px, py]], "labels": [1]}
         best_mask, best_conf = None, -1.0
         for text in self._prompts:
             res = self._model(
-                crop_bgr, texts=text, device=self.device, verbose=False,
+                crop_bgr, texts=text, device=self.device, verbose=False, **pt_kwargs,
             )
             if not res:
                 continue
