@@ -1,7 +1,7 @@
 """Unit tests for sam3.py — pure helpers + injectable processor."""
 import numpy as np
 
-from seg_pose.sam3 import (
+from targetgeo.sam3 import (
     crop_to_bbox, pad_mask_to_full, Sam3DiskSegmenter,
 )
 

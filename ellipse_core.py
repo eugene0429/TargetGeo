@@ -84,7 +84,7 @@ def ellipse_params_to_conic(fit: EllipseFit) -> np.ndarray:
 
 
 # ----------------------------------------------------------------------------
-# Hull-based robust ellipse fit (added for seg_pose).
+# Hull-based robust ellipse fit (added for targetgeo).
 # Convex hull bridges over concave dents caused by overlay occlusions (HUD
 # crosshair, IR insets, text), so cv2.fitEllipse is not pulled inward.
 # ----------------------------------------------------------------------------

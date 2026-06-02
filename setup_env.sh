@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Self-contained dev environment setup for TargetGeo (seg_pose).
+# Self-contained dev environment setup for TargetGeo (targetgeo).
 # Creates a local .venv, installs all deps, and wires the package import name —
 # fully independent of any other project/sandbox on the machine.
 #
@@ -30,11 +30,11 @@ PY="$VENV/bin/python"
 #    requirements.txt includes "sam3 @ git+https://github.com/facebookresearch/sam3".
 "$PIP" install -r "$REPO_DIR/requirements.txt"
 
-# 4) Make the package importable as `seg_pose` INSIDE this venv only
+# 4) Make the package importable as `targetgeo` INSIDE this venv only
 #    (no global symlinks; matches the import name used by the test suite).
 SITE="$("$PY" -c 'import site; print(site.getsitepackages()[0])')"
-ln -sfn "$REPO_DIR" "$SITE/seg_pose"
-echo "==> linked $SITE/seg_pose -> $REPO_DIR"
+ln -sfn "$REPO_DIR" "$SITE/targetgeo"
+echo "==> linked $SITE/targetgeo -> $REPO_DIR"
 
 # 5) Detector weights: replace the drone symlink with a real in-repo copy
 #    (gitignored per README — weights are supplied per deployment).
@@ -56,11 +56,11 @@ cd /tmp
 "$PY" - <<'PYEOF'
 import torch, cv2, numpy as np
 import sam3.model_builder  # noqa: F401
-import seg_pose
-from seg_pose import SegPoseEstimator  # noqa: F401
+import targetgeo
+from targetgeo import TargetGeoEstimator  # noqa: F401
 print("torch", torch.__version__, "cuda", torch.cuda.is_available())
 print("numpy", np.__version__, "cv2", cv2.__version__)
-print("seg_pose ->", seg_pose.__file__)
+print("targetgeo ->", targetgeo.__file__)
 print("OK")
 PYEOF
 

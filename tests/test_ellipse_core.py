@@ -2,7 +2,7 @@
 import numpy as np
 import cv2
 
-from seg_pose.ellipse_core import (
+from targetgeo.ellipse_core import (
     EllipseFit, ellipse_params_to_conic, fit_ellipse_hull,
 )
 

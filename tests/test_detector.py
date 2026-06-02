@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
-from seg_pose.detector import TargetDetector, DEFAULT_DETECTOR_PATH
+from targetgeo.detector import TargetDetector, DEFAULT_DETECTOR_PATH
 
 
 def _mock_yolo_result(bboxes_xyxy, confs):
@@ -31,7 +31,7 @@ def _mock_tensor(arr):
 
 
 def _make_detector_with_mock(mock_predict_return):
-    with patch("seg_pose.detector.YOLO") as mock_yolo_cls:
+    with patch("targetgeo.detector.YOLO") as mock_yolo_cls:
         mock_model = MagicMock()
         mock_model.predict.return_value = mock_predict_return
         mock_yolo_cls.return_value = mock_model

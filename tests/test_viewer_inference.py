@@ -1,6 +1,6 @@
 import numpy as np
 
-from seg_pose.viewer.inference import FrameAnalyzer, FrameResult
+from targetgeo.viewer.inference import FrameAnalyzer, FrameResult
 
 
 class _FakeDetector:
@@ -70,7 +70,7 @@ def test_analyzer_no_detection_returns_status():
     assert res.bbox is None
 
 
-from seg_pose.pose_types import DroneStateGps
+from targetgeo.pose_types import DroneStateGps
 
 
 def test_analyzer_gps_telemetry_fills_geodetic():

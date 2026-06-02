@@ -16,8 +16,8 @@ SAM 3.1 weights auto-download from `huggingface.co/facebook/sam3.1` on first cal
 
 ## Detector weights
 
-Place YOLO rec_bbox weights at `seg_pose/models/target_detector.pt` (default), or pass
-an explicit `detector_checkpoint=` to `SegPoseEstimator(...)`. Weights are NOT included
+Place YOLO rec_bbox weights at `models/target_detector.pt` (default), or pass
+an explicit `detector_checkpoint=` to `TargetGeoEstimator(...)`. Weights are NOT included
 in the repo — supply them per deployment.
 
 ## Usage
@@ -27,9 +27,9 @@ in the repo — supply them per deployment.
 ```python
 import cv2
 import numpy as np
-from seg_pose import SegPoseEstimator, DroneStateUe
+from targetgeo import TargetGeoEstimator, DroneStateUe
 
-estimator = SegPoseEstimator(target_radius_m=2.5)  # loads SAM 3.1 + detector
+estimator = TargetGeoEstimator(target_radius_m=2.5)  # loads SAM 3.1 + detector
 
 rgb = cv2.imread("frame.png")  # HxWx3 BGR
 K = np.array([[1500, 0, 960], [0, 1500, 540], [0, 0, 1]], dtype=float)
@@ -51,7 +51,7 @@ elif result.status == "no_detection":
 ### Real flight data
 
 ```python
-from seg_pose import DroneStateGps
+from targetgeo import DroneStateGps
 
 state = DroneStateGps(
     camera_lat=37.5063,
@@ -77,8 +77,8 @@ result = estimator.estimate(rgb, rec_bbox, state)
 ### Detector alone (no SAM/pose)
 
 ```python
-from seg_pose import TargetDetector
-det = TargetDetector(checkpoint="seg_pose/models/target_detector.pt")
+from targetgeo import TargetDetector
+det = TargetDetector(checkpoint="models/target_detector.pt")
 bbox = det.detect(rgb)  # (x1, y1, x2, y2) or None
 ```
 
@@ -97,26 +97,28 @@ Frame-mode-specific fields are populated based on `DroneStateUe` vs `DroneStateG
 
 ## Tests
 
-Run from the project root (i.e., the parent of the `seg_pose/` directory):
+Run from the project root (i.e., the parent of the `TargetGeo/` directory):
 
 ```bash
-pytest seg_pose/tests/                       # fast tests
-pytest seg_pose/tests/ -m slow               # E2E with real SAM 3.1 (requires GPU + checkpoint)
-pytest seg_pose/tests/ -m 'not slow'         # default: skips slow
+pytest TargetGeo/tests/                       # fast tests
+pytest TargetGeo/tests/ -m slow               # E2E with real SAM 3.1 (requires GPU + checkpoint)
+pytest TargetGeo/tests/ -m 'not slow'         # default: skips slow
 ```
 
 ## Portability check
 
 ```bash
-cp -r seg_pose /tmp/seg_pose
-cd /tmp                           # run from the PARENT of seg_pose/
-pip install -r seg_pose/requirements.txt
-pytest seg_pose/tests/ -m 'not slow'
+cp -r TargetGeo /tmp/TargetGeo
+cd /tmp                           # run from the PARENT of TargetGeo/
+pip install -r TargetGeo/requirements.txt
+pytest TargetGeo/tests/ -m 'not slow'
 ```
 
-Run pytest from the **parent** directory (not from inside `seg_pose/`).
+Run pytest from the **parent** directory (not from inside `TargetGeo/`).
 Python adds the working directory to `sys.path`, so running from inside the
-package would shadow stdlib modules with the same name.
+package would shadow stdlib modules with the same name. (The import name is
+`targetgeo`, wired by `./setup_env.sh` as a venv symlink; the on-disk directory
+is `TargetGeo`.)
 
 All non-slow tests should pass standalone.
 

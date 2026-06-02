@@ -1,7 +1,7 @@
-"""Dataclass tests for seg_pose types."""
+"""Dataclass tests for targetgeo types."""
 import numpy as np
 
-from seg_pose.pose_types import (
+from targetgeo.pose_types import (
     DroneStateUe, DroneStateGps, TargetGeoEstimate,
     PoseSigma, IntrinsicSigma,
     DEFAULT_POSE_SIGMA, DEFAULT_INTRINSIC_SIGMA,

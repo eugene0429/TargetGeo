@@ -22,13 +22,13 @@ visualization panels are saved so segmentation quality can be checked by eye.
 
 Run from a NEUTRAL cwd. The repo root holds a `sam3.py` module that shadows the
 installed `sam3` package if the repo root is on the front of `sys.path`, so the
-runner is invoked through the `seg_pose` namespace (the `seg_pose` symlink to the
+runner is invoked through the `targetgeo` namespace (the `targetgeo` symlink to the
 repo root is already on `sys.path` via site-packages, which keeps the real `sam3`
 package importable):
 
 ```bash
 cd /tmp
-/home/sim2real/TargetGeo/.venv/bin/python -m seg_pose.benchmarks.sam_compare.bench \
+/home/sim2real/TargetGeo/.venv/bin/python -m targetgeo.benchmarks.sam_compare.bench \
     --root /home/sim2real/TargetGeo
 ```
 

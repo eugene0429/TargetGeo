@@ -1,1 +1,1 @@
-"""Interactive video viewer for the seg_pose pipeline."""
+"""Interactive video viewer for the targetgeo pipeline."""

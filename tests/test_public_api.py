@@ -1,8 +1,8 @@
 """Verify public API is reachable via top-level package import."""
 
 def test_public_api_imports():
-    from seg_pose import (
-        SegPoseEstimator,
+    from targetgeo import (
+        TargetGeoEstimator,
         TargetDetector,
         DroneStateUe,
         DroneStateGps,
@@ -10,7 +10,7 @@ def test_public_api_imports():
         PoseSigma,
         IntrinsicSigma,
     )
-    assert SegPoseEstimator is not None
+    assert TargetGeoEstimator is not None
     assert TargetDetector is not None
     assert DroneStateUe is not None
     assert DroneStateGps is not None

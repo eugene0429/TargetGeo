@@ -1,7 +1,7 @@
 import time
 import numpy as np
 
-from seg_pose.viewer.source import FileSource, StreamSource, open_source
+from targetgeo.viewer.source import FileSource, StreamSource, open_source
 
 
 class _FakeCapture:
@@ -88,7 +88,7 @@ def test_streamsource_keeps_latest_frame():
 
 
 def test_open_source_dispatches_by_scheme(monkeypatch):
-    import seg_pose.viewer.source as S
+    import targetgeo.viewer.source as S
     assert isinstance(open_source("rtsp://host/stream",
                                   capture_factory=lambda: _FakeCapture(_frames(3), loop=True)),
                       StreamSource)

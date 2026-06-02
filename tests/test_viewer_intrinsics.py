@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from seg_pose.viewer.intrinsics import build_K
+from targetgeo.viewer.intrinsics import build_K
 
 
 def test_build_K_from_explicit_fx_fy():

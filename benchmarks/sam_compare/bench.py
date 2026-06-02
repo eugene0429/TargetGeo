@@ -5,8 +5,8 @@ model segments the disk inside the crop. SAM3.1/FastSAM use text prompts;
 MobileSAM/EdgeSAM use the detector bbox (in crop coords) as a box prompt.
 
 Usage (run from a NEUTRAL cwd so the local sam3.py does not shadow the package;
-`seg_pose` resolves via its site-packages symlink, so benchmarks is a subpackage):
-    cd /tmp && /home/sim2real/TargetGeo/.venv/bin/python -m seg_pose.benchmarks.sam_compare.bench \
+`targetgeo` resolves via its site-packages symlink, so benchmarks is a subpackage):
+    cd /tmp && /home/sim2real/TargetGeo/.venv/bin/python -m targetgeo.benchmarks.sam_compare.bench \
         --root /home/sim2real/TargetGeo --limit 5
 """
 
@@ -22,7 +22,7 @@ from typing import Dict, List, Optional, Tuple
 import cv2
 import numpy as np
 
-from .paths import repo_root, ensure_seg_pose_importable
+from .paths import repo_root, ensure_targetgeo_importable
 from .metrics import iou, ellipse_summary
 
 
@@ -52,9 +52,9 @@ def percentile(values: List[float], p: float) -> float:
 
 def run(root: Path, limit: Optional[int], warmup: int, device: str,
         viz_limit: Optional[int]) -> None:
-    ensure_seg_pose_importable(root)
-    from seg_pose.detector import TargetDetector
-    from seg_pose.sam3 import crop_to_bbox
+    ensure_targetgeo_importable(root)
+    from targetgeo.detector import TargetDetector
+    from targetgeo.sam3 import crop_to_bbox
     from .adapters import Sam31Adapter, FastSamAdapter
     from .viz import make_panel, save_panel
 

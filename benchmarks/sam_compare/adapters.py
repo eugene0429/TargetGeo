@@ -75,7 +75,7 @@ def _ultra_best_mask(result, h: int, w: int) -> Optional[np.ndarray]:
 class Sam31Adapter(BoxSegmenter):
     """Production SAM3.1 path: text prompts on the crop. Box is ignored.
 
-    Wraps seg_pose.sam3.Sam3DiskSegmenter for exact production parity.
+    Wraps targetgeo.sam3.Sam3DiskSegmenter for exact production parity.
     """
 
     name = "sam3.1"
@@ -84,8 +84,8 @@ class Sam31Adapter(BoxSegmenter):
         super().__init__()
         self.device = device
         try:
-            from seg_pose.sam3 import Sam3DiskSegmenter
-            from seg_pose.estimator import DEFAULT_TEXT_PROMPTS
+            from targetgeo.sam3 import Sam3DiskSegmenter
+            from targetgeo.estimator import DEFAULT_TEXT_PROMPTS
             self._seg = Sam3DiskSegmenter(device=device)
             self._prompts = tuple(DEFAULT_TEXT_PROMPTS)
             self.available = True
@@ -121,7 +121,7 @@ class FastSamAdapter(BoxSegmenter):
             from ultralytics import FastSAM
             self._model = FastSAM(weights)
             if "text" in prompt_mode:
-                from seg_pose.estimator import DEFAULT_TEXT_PROMPTS
+                from targetgeo.estimator import DEFAULT_TEXT_PROMPTS
                 self._prompts = tuple(DEFAULT_TEXT_PROMPTS)
             self.available = True
         except Exception as e:  # noqa: BLE001

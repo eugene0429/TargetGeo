@@ -1,6 +1,6 @@
 import numpy as np
 
-from seg_pose.viewer.telemetry import load_telemetry, build_state
+from targetgeo.viewer.telemetry import load_telemetry, build_state
 
 
 def test_load_telemetry_parses_rows(tmp_path):

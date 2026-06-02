@@ -1,7 +1,7 @@
 """Estimator skeleton + DI tests (no estimate() logic yet)."""
 import numpy as np
 
-from seg_pose.estimator import SegPoseEstimator
+from targetgeo.estimator import TargetGeoEstimator
 
 
 class _DummySegmenter:
@@ -15,7 +15,7 @@ class _DummyDetector:
 
 
 def _make_estimator(**overrides):
-    return SegPoseEstimator(
+    return TargetGeoEstimator(
         segmenter=_DummySegmenter(),
         detector=_DummyDetector(),
         **overrides,

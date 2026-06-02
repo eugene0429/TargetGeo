@@ -6,10 +6,10 @@ from typing import Dict
 
 import numpy as np
 
-from .paths import repo_root, ensure_seg_pose_importable
+from .paths import repo_root, ensure_targetgeo_importable
 
-ensure_seg_pose_importable(repo_root())
-from seg_pose.ellipse_core import fit_ellipse_to_mask  # noqa: E402
+ensure_targetgeo_importable(repo_root())
+from targetgeo.ellipse_core import fit_ellipse_to_mask  # noqa: E402
 
 
 def iou(a: np.ndarray, b: np.ndarray) -> float:

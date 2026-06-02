@@ -7,4 +7,4 @@ if [ ! -x "$PY" ]; then
   echo "venv missing - run ./setup_env.sh first" >&2
   exit 1
 fi
-exec "$PY" -m seg_pose.viewer "$@"
+exec "$PY" -m targetgeo.viewer "$@"

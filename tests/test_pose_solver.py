@@ -1,7 +1,7 @@
 """Verify vendored pose_solver imports and the Chen 2004 algorithm still works."""
 import numpy as np
 
-from seg_pose.pose_solver import solve_circle_pose, PoseSolverError
+from targetgeo.pose_solver import solve_circle_pose, PoseSolverError
 
 
 def test_solve_circle_pose_returns_two_candidates():

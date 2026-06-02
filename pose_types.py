@@ -1,4 +1,4 @@
-"""Public dataclasses for seg_pose: DroneStateUe, DroneStateGps, TargetGeoEstimate."""
+"""Public dataclasses for targetgeo: DroneStateUe, DroneStateGps, TargetGeoEstimate."""
 
 from __future__ import annotations
 
@@ -51,7 +51,7 @@ DroneState = "DroneStateUe | DroneStateGps"
 
 @dataclass(frozen=True)
 class TargetGeoEstimate:
-    """Output of SegPoseEstimator.estimate(). Frame-agnostic + per-mode fields."""
+    """Output of TargetGeoEstimator.estimate(). Frame-agnostic + per-mode fields."""
     # Absolute position — exactly one of these is populated based on input mode
     target_xyz_ue_m: tuple[float, float, float] | None
     target_lat: float | None

@@ -1,4 +1,4 @@
-"""SegPoseEstimator — top-level orchestrator."""
+"""TargetGeoEstimator — top-level orchestrator."""
 
 from __future__ import annotations
 
@@ -17,12 +17,22 @@ from .pose_types import (
 
 DEFAULT_TEXT_PROMPTS = (
     "concentric circular target",
-    "round archery target on white background",
-    "black outer ring of archery target",
+#     "round archery target on white background",
+#     "black outer ring of archery target",
 )
 
+# Pipeline defaults — single source of truth shared with the viewer
+# (targetgeo.viewer.inference.FrameAnalyzer) so the two stay in sync.
+DEFAULT_TARGET_RADIUS_M = 2.5
+DEFAULT_CROP_PAD_RATIO = 0.15
+DEFAULT_DETECTOR_CONF_THRESHOLD = 0.25
+DEFAULT_MIN_MASK_AREA_PX = 200
+DEFAULT_MIN_MINOR_AXIS_PX = 4.0
+DEFAULT_MAX_NORMAL_CONE_DEG = 45.0
+DEFAULT_PIXEL_SIGMA_PX = 0.5
 
-class SegPoseEstimator:
+
+class TargetGeoEstimator:
     """Single-frame target detection + disk segmentation + pose estimation."""
 
     def __init__(
@@ -30,15 +40,15 @@ class SegPoseEstimator:
         *,
         sam3_checkpoint: str | Path = "hf",
         detector_checkpoint: str | Path = DEFAULT_DETECTOR_PATH,
-        target_radius_m: float = 2.5,
+        target_radius_m: float = DEFAULT_TARGET_RADIUS_M,
         device: str = "cuda",
         text_prompts: tuple[str, ...] = DEFAULT_TEXT_PROMPTS,
-        crop_pad_ratio: float = 0.15,
-        detector_conf_threshold: float = 0.25,
-        min_mask_area_px: int = 200,
-        min_minor_axis_px: float = 4.0,
-        max_normal_cone_deg: float = 45.0,
-        pixel_sigma_px: float = 0.5,
+        crop_pad_ratio: float = DEFAULT_CROP_PAD_RATIO,
+        detector_conf_threshold: float = DEFAULT_DETECTOR_CONF_THRESHOLD,
+        min_mask_area_px: int = DEFAULT_MIN_MASK_AREA_PX,
+        min_minor_axis_px: float = DEFAULT_MIN_MINOR_AXIS_PX,
+        max_normal_cone_deg: float = DEFAULT_MAX_NORMAL_CONE_DEG,
+        pixel_sigma_px: float = DEFAULT_PIXEL_SIGMA_PX,
         pose_sigma: PoseSigma = DEFAULT_POSE_SIGMA,
         intrinsic_sigma: IntrinsicSigma = DEFAULT_INTRINSIC_SIGMA,
         segmenter: Optional[object] = None,   # for DI/testing

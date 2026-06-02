@@ -1,6 +1,6 @@
 import numpy as np
 
-from seg_pose.viewer.overlays import project_point, project_normal_arrow
+from targetgeo.viewer.overlays import project_point, project_normal_arrow
 
 
 def _K():
@@ -36,7 +36,7 @@ def test_project_normal_arrow_caps_pixel_length():
     assert p1 == (60, 50)
 
 
-from seg_pose.viewer.overlays import (
+from targetgeo.viewer.overlays import (
     draw_bbox, draw_ellipse, draw_mask,
     BBOX_COLOR, ELLIPSE_COLOR,
 )
@@ -82,7 +82,7 @@ def test_draw_mask_none_is_noop():
 
 
 from types import SimpleNamespace
-from seg_pose.viewer.overlays import draw_normal, draw_hud, render
+from targetgeo.viewer.overlays import draw_normal, draw_hud, render
 
 
 def _result_ok():

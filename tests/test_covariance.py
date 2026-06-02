@@ -2,7 +2,7 @@
 import numpy as np
 import pytest
 
-from seg_pose.covariance import compute_position_covariance
+from targetgeo.covariance import compute_position_covariance
 
 
 class _Sigma:

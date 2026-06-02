@@ -1,7 +1,7 @@
 """Verify vendored disambiguate.py works."""
 import numpy as np
 
-from seg_pose.disambiguate import disambiguate_visibility, DisambiguationResult
+from targetgeo.disambiguate import disambiguate_visibility, DisambiguationResult
 
 
 def test_disambiguate_picks_more_negative_nz_when_no_world_up():

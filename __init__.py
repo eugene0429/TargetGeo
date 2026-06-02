@@ -3,7 +3,7 @@
 Self-contained module — portable to other machines via directory copy.
 """
 
-from .estimator import SegPoseEstimator
+from .estimator import TargetGeoEstimator
 from .detector import TargetDetector, DEFAULT_DETECTOR_PATH
 from .pose_types import (
     DroneStateUe,
@@ -16,7 +16,7 @@ from .pose_types import (
 )
 
 __all__ = [
-    "SegPoseEstimator",
+    "TargetGeoEstimator",
     "TargetDetector",
     "DEFAULT_DETECTOR_PATH",
     "DroneStateUe",

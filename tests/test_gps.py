@@ -3,7 +3,7 @@ import math
 
 import pymap3d as pm
 
-from seg_pose.gps import offset_to_target_gps
+from targetgeo.gps import offset_to_target_gps
 
 
 def test_zero_offset_returns_camera_gps():

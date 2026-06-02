@@ -1,7 +1,7 @@
 """Verify vendored transforms + new ENU helpers."""
 import numpy as np
 
-from seg_pose.transforms import (
+from targetgeo.transforms import (
     ue_rotation_matrix,
     cam_cv_to_world,
     world_up_in_cam_cv,

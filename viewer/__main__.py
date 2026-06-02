@@ -1,10 +1,11 @@
-"""CLI: python -m seg_pose.viewer <video|rtsp> [options]."""
+"""CLI: python -m targetgeo.viewer <video|rtsp> [options]."""
 
 from __future__ import annotations
 
 import argparse
 import os
 import sys
+import time
 
 # Drop the package root (and cwd if it IS that dir) from sys.path so the repo's
 # own sam3.py cannot shadow the installed top-level `sam3` package. The package
@@ -29,7 +30,7 @@ class _LazySam3Segmenter:
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(prog="seg_pose.viewer",
+    ap = argparse.ArgumentParser(prog="targetgeo.viewer",
                                  description="Interactive target video viewer")
     ap.add_argument("source", help="video file path or rtsp://... stream URL")
     ap.add_argument("--hfov-deg", type=float, default=None,
@@ -49,12 +50,12 @@ def main(argv=None):
     args = ap.parse_args(argv)
 
     import cv2
-    from seg_pose.sam3 import Sam3DiskSegmenter
-    from seg_pose.detector import TargetDetector, DEFAULT_DETECTOR_PATH
-    from seg_pose.viewer.intrinsics import build_K
-    from seg_pose.viewer.inference import FrameAnalyzer
-    from seg_pose.viewer.source import open_source, StreamSource
-    from seg_pose.viewer.app import ViewerApp
+    from targetgeo.sam3 import Sam3DiskSegmenter
+    from targetgeo.detector import TargetDetector, DEFAULT_DETECTOR_PATH
+    from targetgeo.viewer.intrinsics import build_K
+    from targetgeo.viewer.inference import FrameAnalyzer
+    from targetgeo.viewer.source import open_source, StreamSource
+    from targetgeo.viewer.app import ViewerApp
 
     src = open_source(args.source)
 
@@ -62,11 +63,15 @@ def main(argv=None):
     if isinstance(src, StreamSource):
         src.start()
         frame = None
-        for _ in range(200):
+        # Wait up to ~10s for the first frame. Use a real sleep, not
+        # cv2.waitKey: with no HighGUI window open yet, waitKey returns
+        # immediately and the loop would spin out before the stream connects.
+        deadline = time.monotonic() + 10.0
+        while time.monotonic() < deadline:
             frame = src.latest()
             if frame is not None:
                 break
-            cv2.waitKey(20)
+            time.sleep(0.05)
         if frame is None:
             print("ERROR: no frames from stream", file=sys.stderr)
             return 2
@@ -85,7 +90,7 @@ def main(argv=None):
 
     telemetry = {}
     if args.telemetry:
-        from seg_pose.viewer.telemetry import load_telemetry
+        from targetgeo.viewer.telemetry import load_telemetry
         telemetry = load_telemetry(args.telemetry)
 
     print(f"loading detector on {args.device}...", flush=True)

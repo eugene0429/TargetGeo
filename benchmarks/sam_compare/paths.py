@@ -2,7 +2,7 @@
 
 The repo root holds a module `sam3.py` that shadows the installed `sam3` package
 when the root is sys.path[0]. We therefore append the root to the END of sys.path
-so site-packages (the real sam3 package) win, while `import seg_pose` still works.
+so site-packages (the real sam3 package) win, while `import targetgeo` still works.
 """
 
 from __future__ import annotations
@@ -18,8 +18,8 @@ def repo_root(explicit: str | None = None) -> Path:
     return Path(__file__).resolve().parents[2]
 
 
-def ensure_seg_pose_importable(root: Path) -> None:
-    """Append `root` to sys.path so `import seg_pose` works (root appended, not prepended)."""
+def ensure_targetgeo_importable(root: Path) -> None:
+    """Append `root` to sys.path so `import targetgeo` works (root appended, not prepended)."""
     root_str = str(root)
     if root_str not in sys.path:
         sys.path.append(root_str)

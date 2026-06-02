@@ -6,7 +6,7 @@ import cv2
 import numpy as np
 import pytest
 
-from seg_pose import SegPoseEstimator, DroneStateUe
+from targetgeo import TargetGeoEstimator, DroneStateUe
 
 
 REF_FRAME = Path("/home/sim2real/drone/data_real/frame_002850_t0095.00s.png")
@@ -32,7 +32,7 @@ def test_e2e_ue_path_real_sam3():
         K=K,
     )
 
-    est = SegPoseEstimator(target_radius_m=2.5)  # 5x5 m target → radius 2.5 m
+    est = TargetGeoEstimator(target_radius_m=2.5)  # 5x5 m target → radius 2.5 m
     result = est.estimate(rgb, REF_BBOX, state)
 
     assert result.valid, f"status={result.status} flags={result.flags}"

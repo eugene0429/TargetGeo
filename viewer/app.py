@@ -1,8 +1,8 @@
-"""Tkinter video viewer for the seg_pose pipeline.
+"""Tkinter video viewer for the targetgeo pipeline.
 
 A real player UI: ▶/❚❚ play-pause, ◀ ▶ frame step, scrubbable slider, speed
 buttons, frame/second jump, per-layer toggles, and a status bar — modelled on
-the original tools/m2 viewer but driven by the seg_pose FrameAnalyzer.
+the original tools/m2 viewer but driven by the targetgeo FrameAnalyzer.
 
 SAM 3.1 is heavy (~0.5 s/frame), so a background worker prefetches and caches
 per-frame results; the UI plays through cached frames at the chosen speed and
@@ -21,8 +21,8 @@ import cv2
 import numpy as np
 from PIL import Image, ImageTk
 
-from seg_pose.viewer.overlays import render
-from seg_pose.viewer.inference import FrameResult
+from targetgeo.viewer.overlays import render
+from targetgeo.viewer.inference import FrameResult
 
 MAX_DISPLAY_W = 1280
 MAX_DISPLAY_H = 720
@@ -74,15 +74,16 @@ class ViewerApp:
     def run(self):
         self.root = tk.Tk()
         self.speed_var = tk.DoubleVar(value=1.0)
-        # Default to bbox-only so launch stays light (detector only). The
-        # SAM-dependent layers start OFF and load SAM 3.1 (~3GB GPU) lazily when
-        # first enabled.
+        # All layers ON by default: the SAM-dependent layers (mask/ellipse/
+        # normal/hud) are enabled at launch, so SAM 3.1 (~3GB GPU) loads up front
+        # via need_sam=True. Toggle layers off to fall back to the light
+        # detector-only (bbox) path.
         self.layer_vars = {
             "bbox": tk.BooleanVar(value=True),
-            "mask": tk.BooleanVar(value=False),
-            "ellipse": tk.BooleanVar(value=False),
-            "normal": tk.BooleanVar(value=False),
-            "hud": tk.BooleanVar(value=False),
+            "mask": tk.BooleanVar(value=True),
+            "ellipse": tk.BooleanVar(value=True),
+            "normal": tk.BooleanVar(value=True),
+            "hud": tk.BooleanVar(value=True),
         }
 
         first = self._grab_initial_frame()
@@ -252,7 +253,7 @@ class ViewerApp:
         return None
 
     def _tele_for(self, idx):
-        from seg_pose.viewer.telemetry import build_state
+        from targetgeo.viewer.telemetry import build_state
         row = self.telemetry.get(idx)
         return build_state(row, self.K) if row else None
 

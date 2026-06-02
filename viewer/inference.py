@@ -1,6 +1,6 @@
-"""FrameAnalyzer: run the seg_pose pipeline on one frame -> FrameResult.
+"""FrameAnalyzer: run the targetgeo pipeline on one frame -> FrameResult.
 
-Reuses the same building blocks as SegPoseEstimator but (a) keeps the SAM mask
+Reuses the same building blocks as TargetGeoEstimator but (a) keeps the SAM mask
 so the viewer can draw it, and (b) supports a no-telemetry path that yields
 camera-frame normal/range/cone with visibility-based disambiguation. When a
 DroneState is supplied, world-frame geodetic fields are filled in too.
@@ -13,24 +13,28 @@ from dataclasses import dataclass, field
 import cv2
 import numpy as np
 
-from seg_pose.sam3 import crop_to_bbox, pad_mask_to_full
-from seg_pose.ellipse_core import fit_ellipse_hull, ellipse_params_to_conic
-from seg_pose.pose_solver import solve_circle_pose, PoseSolverError
-from seg_pose.disambiguate import disambiguate_visibility
-from seg_pose.covariance import compute_position_covariance
-from seg_pose.pose_types import (
+from targetgeo.sam3 import crop_to_bbox, pad_mask_to_full
+from targetgeo.ellipse_core import fit_ellipse_hull, ellipse_params_to_conic
+from targetgeo.pose_solver import solve_circle_pose, PoseSolverError
+from targetgeo.disambiguate import disambiguate_visibility
+from targetgeo.covariance import compute_position_covariance
+from targetgeo.pose_types import (
     DroneStateUe, DroneStateGps, DEFAULT_POSE_SIGMA, DEFAULT_INTRINSIC_SIGMA,
 )
-from seg_pose.transforms import (
+from targetgeo.transforms import (
     M_UE2CV, ue_rotation_matrix, enu_rotation_matrix,
     world_up_in_cam_cv, world_up_in_cam_enu,
 )
-from seg_pose.gps import offset_to_target_gps
-
-DEFAULT_TEXT_PROMPTS = (
-    "concentric circular target",
-    "round archery target on white background",
-    "black outer ring of archery target",
+from targetgeo.gps import offset_to_target_gps
+# Pipeline defaults live in the production estimator; the viewer reuses them
+# verbatim so both paths share one source of truth.
+from targetgeo.estimator import (
+    DEFAULT_TEXT_PROMPTS,
+    DEFAULT_CROP_PAD_RATIO,
+    DEFAULT_MIN_MASK_AREA_PX,
+    DEFAULT_MIN_MINOR_AXIS_PX,
+    DEFAULT_MAX_NORMAL_CONE_DEG,
+    DEFAULT_PIXEL_SIGMA_PX,
 )
 
 
@@ -82,11 +86,11 @@ class FrameAnalyzer:
         detector,
         segmenter,
         text_prompts=DEFAULT_TEXT_PROMPTS,
-        crop_pad_ratio=0.15,
-        min_mask_area_px=200,
-        min_minor_axis_px=4.0,
-        max_normal_cone_deg=45.0,
-        pixel_sigma_px=0.5,
+        crop_pad_ratio=DEFAULT_CROP_PAD_RATIO,
+        min_mask_area_px=DEFAULT_MIN_MASK_AREA_PX,
+        min_minor_axis_px=DEFAULT_MIN_MINOR_AXIS_PX,
+        max_normal_cone_deg=DEFAULT_MAX_NORMAL_CONE_DEG,
+        pixel_sigma_px=DEFAULT_PIXEL_SIGMA_PX,
     ):
         self._detector = detector
         self._segmenter = segmenter

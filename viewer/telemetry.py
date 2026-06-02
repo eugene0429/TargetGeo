@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import csv
 
-from seg_pose.pose_types import DroneStateGps
+from targetgeo.pose_types import DroneStateGps
 
 
 def load_telemetry(path: str) -> dict[int, dict]:

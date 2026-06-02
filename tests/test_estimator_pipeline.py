@@ -1,8 +1,8 @@
 """Estimator pipeline tests with mocked segmenter."""
 import numpy as np
 
-from seg_pose.estimator import SegPoseEstimator
-from seg_pose.pose_types import DroneStateUe
+from targetgeo.estimator import TargetGeoEstimator
+from targetgeo.pose_types import DroneStateUe
 
 
 def _make_disk_crop_mask(crop_h, crop_w, r=40):
@@ -39,7 +39,7 @@ def _make_state_ue(focal=1500.0):
 
 
 def test_estimate_returns_ellipse_when_mask_present():
-    est = SegPoseEstimator(segmenter=_MockSegmenter(), detector=_NullDetector(), target_radius_m=2.5)
+    est = TargetGeoEstimator(segmenter=_MockSegmenter(), detector=_NullDetector(), target_radius_m=2.5)
     rgb = np.zeros((1080, 1920, 3), dtype=np.uint8)
     bbox = (800, 400, 1100, 700)
     state = _make_state_ue()
@@ -57,7 +57,7 @@ def test_estimate_fails_when_segmenter_returns_none():
     class _Null:
         def segment(self, *_a, **_k):
             return None, -1.0, ""
-    est = SegPoseEstimator(segmenter=_Null(), detector=_NullDetector())
+    est = TargetGeoEstimator(segmenter=_Null(), detector=_NullDetector())
     result = est.estimate(np.zeros((1080, 1920, 3), dtype=np.uint8),
                           (800, 400, 1100, 700), _make_state_ue())
     assert not result.valid
@@ -65,7 +65,7 @@ def test_estimate_fails_when_segmenter_returns_none():
 
 
 def test_estimate_runs_chen_and_disambiguates():
-    est = SegPoseEstimator(segmenter=_MockSegmenter(), detector=_NullDetector(), target_radius_m=2.5)
+    est = TargetGeoEstimator(segmenter=_MockSegmenter(), detector=_NullDetector(), target_radius_m=2.5)
     rgb = np.zeros((1080, 1920, 3), dtype=np.uint8)
     bbox = (800, 400, 1100, 700)
     state = _make_state_ue()
@@ -78,7 +78,7 @@ def test_estimate_runs_chen_and_disambiguates():
 
 
 def test_estimate_ue_path_produces_target_xyz():
-    est = SegPoseEstimator(segmenter=_MockSegmenter(), detector=_NullDetector(), target_radius_m=2.5)
+    est = TargetGeoEstimator(segmenter=_MockSegmenter(), detector=_NullDetector(), target_radius_m=2.5)
     rgb = np.zeros((1080, 1920, 3), dtype=np.uint8)
     bbox = (800, 400, 1100, 700)
     state = _make_state_ue()
@@ -89,14 +89,14 @@ def test_estimate_ue_path_produces_target_xyz():
 
 
 def test_estimate_gps_path_produces_target_lat_lon():
-    from seg_pose.pose_types import DroneStateGps
+    from targetgeo.pose_types import DroneStateGps
     K = np.array([[1500, 0, 960], [0, 1500, 540], [0, 0, 1]], dtype=float)
     state = DroneStateGps(
         camera_lat=37.5, camera_lon=127.0, camera_alt_m=100.0,
         camera_pyr_deg=(0.0, 0.0, 0.0),
         K=K,
     )
-    est = SegPoseEstimator(segmenter=_MockSegmenter(), detector=_NullDetector(), target_radius_m=2.5)
+    est = TargetGeoEstimator(segmenter=_MockSegmenter(), detector=_NullDetector(), target_radius_m=2.5)
     result = est.estimate(np.zeros((1080, 1920, 3), dtype=np.uint8),
                           (800, 400, 1100, 700), state)
     assert result.target_xyz_ue_m is None
@@ -107,7 +107,7 @@ def test_estimate_gps_path_produces_target_lat_lon():
 
 
 def test_estimate_returns_valid_true_with_covariance():
-    est = SegPoseEstimator(segmenter=_MockSegmenter(), detector=_NullDetector(), target_radius_m=2.5)
+    est = TargetGeoEstimator(segmenter=_MockSegmenter(), detector=_NullDetector(), target_radius_m=2.5)
     rgb = np.zeros((1080, 1920, 3), dtype=np.uint8)
     bbox = (800, 400, 1100, 700)
     state = _make_state_ue()
@@ -121,7 +121,7 @@ def test_estimate_returns_valid_true_with_covariance():
 
 def test_estimate_flags_high_normal_cone():
     """When normal_cone_deg exceeds threshold, flag is added."""
-    est = SegPoseEstimator(
+    est = TargetGeoEstimator(
         segmenter=_MockSegmenter(),
         detector=_NullDetector(),
         target_radius_m=2.5,
@@ -144,7 +144,7 @@ class _MockDetector:
 
 
 def test_estimate_from_image_runs_detector_then_estimate():
-    est = SegPoseEstimator(
+    est = TargetGeoEstimator(
         segmenter=_MockSegmenter(),
         detector=_MockDetector(bbox=(800, 400, 1100, 700)),
         target_radius_m=2.5,
@@ -158,7 +158,7 @@ def test_estimate_from_image_runs_detector_then_estimate():
 
 
 def test_estimate_from_image_returns_no_detection_when_detector_empty():
-    est = SegPoseEstimator(
+    est = TargetGeoEstimator(
         segmenter=_MockSegmenter(),
         detector=_NullDetector(),
     )

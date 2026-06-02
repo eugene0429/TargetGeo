@@ -109,7 +109,7 @@ def line_angle_error(n1, n2) -> float:
 
 
 # ----------------------------------------------------------------------------
-# ENU convention (added for seg_pose GPS path).
+# ENU convention (added for targetgeo GPS path).
 # Camera Euler (pitch, yaw, roll) interpreted in ENU world frame:
 #   - yaw around Up (+Z), pitch around East (+X), roll around forward.
 # Returned matrix maps camera-frame point → ENU world-frame point:
