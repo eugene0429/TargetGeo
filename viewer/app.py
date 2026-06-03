@@ -62,6 +62,8 @@ class ViewerApp:
         self._slider_dragging = False
         self._tk_image = None
         self._needed_mirror = RANK_FULL  # plain int read by the worker thread
+        self._last_bgr = None            # last rendered frame, for resize redraws
+        self._last_canvas_size = (0, 0)
 
         if not self.is_stream:
             self.total = max(1, int(getattr(source, "frame_count", 1)))
@@ -91,7 +93,9 @@ class ViewerApp:
             self.root.destroy()
             raise SystemExit("no frame available from source")
         fh, fw = first.shape[:2]
+        self.frame_w, self.frame_h = fw, fh  # native source size; drives aspect ratio
         scale = min(MAX_DISPLAY_W / fw, MAX_DISPLAY_H / fh, 1.0)
+        # Initial canvas size only; the image rescales to the live canvas size.
         self.disp_w, self.disp_h = int(fw * scale), int(fh * scale)
 
         self._build_ui()
@@ -158,6 +162,7 @@ class ViewerApp:
 
         self.canvas = tk.Canvas(self.root, width=self.disp_w, height=self.disp_h, bg="#222")
         self.canvas.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+        self.canvas.bind("<Configure>", self._on_canvas_resize)
 
         mid = ttk.Frame(self.root, padding=4)
         mid.pack(side=tk.TOP, fill=tk.X)
@@ -398,17 +403,43 @@ class ViewerApp:
     def _layers(self):
         return {k: v.get() for k, v in self.layer_vars.items()}
 
+    def _canvas_size(self):
+        """Live canvas size, falling back to the initial size before it's realized."""
+        cw, ch = self.canvas.winfo_width(), self.canvas.winfo_height()
+        if cw <= 1 or ch <= 1:
+            return self.disp_w, self.disp_h
+        return cw, ch
+
+    def _fit(self, fw, fh):
+        """Largest (w, h) keeping the fw:fh aspect ratio inside the live canvas."""
+        cw, ch = self._canvas_size()
+        scale = min(cw / fw, ch / fh)
+        return max(1, int(fw * scale)), max(1, int(fh * scale))
+
+    def _on_canvas_resize(self, ev):
+        if (ev.width, ev.height) == self._last_canvas_size:
+            return
+        self._last_canvas_size = (ev.width, ev.height)
+        if self._last_bgr is not None:
+            self._draw(self._last_bgr)
+
     def _draw(self, bgr):
-        small = cv2.resize(bgr, (self.disp_w, self.disp_h), interpolation=cv2.INTER_AREA)
+        self._last_bgr = bgr
+        fh, fw = bgr.shape[:2]
+        dw, dh = self._fit(fw, fh)
+        interp = cv2.INTER_AREA if dw < fw else cv2.INTER_LINEAR
+        small = cv2.resize(bgr, (dw, dh), interpolation=interp)
         rgb = cv2.cvtColor(small, cv2.COLOR_BGR2RGB)
         self._tk_image = ImageTk.PhotoImage(Image.fromarray(rgb))
+        cw, ch = self._canvas_size()
         self.canvas.delete("all")
-        self.canvas.create_image(self.disp_w // 2, self.disp_h // 2,
+        self.canvas.create_image(cw // 2, ch // 2,
                                  image=self._tk_image, anchor=tk.CENTER)
 
     def _draw_placeholder(self, msg):
+        cw, ch = self._canvas_size()
         self.canvas.delete("all")
-        self.canvas.create_text(self.disp_w // 2, self.disp_h // 2, text=msg,
+        self.canvas.create_text(cw // 2, ch // 2, text=msg,
                                  fill="#ddd", font=("TkDefaultFont", 16))
 
     def _set_status(self, text):
